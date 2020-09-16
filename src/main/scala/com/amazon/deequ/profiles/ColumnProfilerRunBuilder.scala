@@ -39,6 +39,8 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   protected var saveColumnProfilesJsonPath: Option[String] = None
   protected var saveConstraintSuggestionsJsonPath: Option[String] = None
   protected var saveEvaluationResultsJsonPath: Option[String] = None
+  protected var correlation = true
+  protected var histogram = true
   protected var kllProfiling = false
   protected var kllParameters: Option[KLLParameters] = None
   protected var predefinedTypes: Map[String, DataTypeInstances.Value] = Map.empty
@@ -107,6 +109,22 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     */
   def restrictToColumns(restrictToColumns: Seq[String]): this.type = {
     this.restrictToColumns = Option(restrictToColumns)
+    this
+  }
+
+  /**
+   * Enable correlation profiling on Numerical columns, enabled by default.
+   */
+  def withCorrelation(correlation: Boolean): this.type = {
+    this.correlation = correlation
+    this
+  }
+
+  /**
+   * Enable histogram profiling on Numerical columns, enabled by default.
+   */
+  def withHistogram(histogram: Boolean): this.type = {
+    this.histogram = histogram
     this
   }
 
@@ -180,6 +198,8 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
         reuseExistingResultsKey,
         failIfResultsForReusingMissing,
         saveOrAppendResultsKey),
+      correlation,
+      histogram,
       kllProfiling,
       kllParameters,
       predefinedTypes
