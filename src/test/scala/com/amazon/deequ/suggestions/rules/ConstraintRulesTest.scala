@@ -688,8 +688,9 @@ class ConstraintRulesTest extends WordSpec with FixtureSupport with SparkContext
   "NonNegativeNumbersRule and PositiveNumbersRule" should {
     "be applied correctly" in {
       def columnProfileWithMinimum(minimum: Double): NumericColumnProfile = {
-        NumericColumnProfile("col1", 1.0, 1.0, 1.0, 1.0, 100, Fractional, isDataTypeInferred = false,
-          Map.empty, None, None, Some(10), Some(100), Some(minimum), Some(10000), Some(1.0), None, None)
+        NumericColumnProfile("col1", 1.0, 1.0, 1.0, 1.0, 100, Fractional,
+          isDataTypeInferred = false, Map.empty, None, None, Some(10), Some(100),
+          Some(minimum), Some(10000), Some(1.0), None, None)
       }
 
       val nRecords = 100
