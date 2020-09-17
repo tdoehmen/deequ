@@ -64,6 +64,9 @@ class KLLProfileTest extends WordSpec with Matchers with SparkContextSpec
         val expectedColumnProfile = NumericColumnProfile(
           "att1",
           1.0,
+          1.0,
+          1.0,
+          1.0,
           6,
           DataTypeInstances.Fractional,
           false,
@@ -85,7 +88,9 @@ class KLLProfileTest extends WordSpec with Matchers with SparkContextSpec
             3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0,
             4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
             5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0,
-            6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)))
+            6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)),
+          None
+        )
 
         assertProfilesEqual(expectedColumnProfile,
           actualColumnProfile.asInstanceOf[NumericColumnProfile])
@@ -104,6 +109,9 @@ class KLLProfileTest extends WordSpec with Matchers with SparkContextSpec
         val expectedColumnProfile = NumericColumnProfile(
           "att1",
           1.0,
+          1.0,
+          1.0,
+          1.0,
           30,
           DataTypeInstances.Fractional,
           false,
@@ -120,6 +128,7 @@ class KLLProfileTest extends WordSpec with Matchers with SparkContextSpec
           Some(1.0),
           Some(465.0),
           Some(8.65544144839919),
+          None,
           None)
 
         assertProfilesEqual(expectedColumnProfile,
