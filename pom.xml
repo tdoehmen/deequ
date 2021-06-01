@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.logicalclocks</groupId>
-    <artifactId>deequ</artifactId>
-    <version>1.1.0</version>
+    <artifactId>deequ_${scala.major.version}</artifactId>
+    <version>1.1.0.0</version>
 
     <name>deequ</name>
     <description>Deequ is a library built on top of Apache Spark for defining "unit tests for data",
@@ -73,7 +73,9 @@
         <spark-23.version>2.3.2</spark-23.version>
         <spark-24.version>2.4.2</spark-24.version>
         <spark-30.version>3.0.0</spark-30.version>
+        <spark-31.version>3.1.1.0</spark-31.version>
         <artifact.spark.version></artifact.spark.version>
+        <spark.scope>provided</spark.scope>
     </properties>
 
     <dependencies>
@@ -87,12 +89,14 @@
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-core_${scala.major.version}</artifactId>
             <version>${spark.version}</version>
+            <scope>${spark.scope}</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-sql_${scala.major.version}</artifactId>
             <version>${spark.version}</version>
+            <scope>${spark.scope}</scope>
         </dependency>
 
         <dependency>
@@ -443,7 +447,31 @@
                 <artifact.spark.version>_spark-${spark.version}</artifact.spark.version>
             </properties>
         </profile>
+        <profile>
+            <id>spark-3.1-scala-2.12</id>
+            <properties>
+                <spark.version>${spark-31.version}</spark.version>
+                <scala.major.version>${scala-212.major.version}</scala.major.version>
+                <scala.version>${scala.major.version}.10</scala.version>
+                <artifact.scala.version>_scala-${scala.major.version}</artifact.scala.version>
+                <artifact.spark.version>_spark-${spark.version}</artifact.spark.version>
+            </properties>
+        </profile>
     </profiles>
+
+    <repositories>
+        <repository>
+            <id>Hops</id>
+            <name>Hops Repo</name>
+            <url>https://archiva.hops.works/repository/Hops/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 
     <distributionManagement>
         <repository>

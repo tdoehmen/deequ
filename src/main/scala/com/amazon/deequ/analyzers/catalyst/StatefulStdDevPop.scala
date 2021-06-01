@@ -21,7 +21,8 @@ import org.apache.spark.sql.catalyst.expressions.aggregate.CentralMomentAgg
 import org.apache.spark.sql.types._
 
 /** Adjusted version of org.apache.spark.sql.catalyst.expressions.aggregate.StddevPop */
-private[sql] case class StatefulStdDevPop(child: Expression) extends CentralMomentAgg(child) {
+private[sql] case class StatefulStdDevPop(child: Expression, nullOnDivideByZero: Boolean)
+  extends CentralMomentAgg(child, nullOnDivideByZero) {
 
   override protected def momentOrder = 2
 

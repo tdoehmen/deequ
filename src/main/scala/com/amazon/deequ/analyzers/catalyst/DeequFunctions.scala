@@ -48,7 +48,7 @@ object DeequFunctions {
 
   /** Standard deviation with state */
   def stateful_stddev_pop(column: Column): Column = withAggregateFunction {
-    StatefulStdDevPop(column.expr)
+    StatefulStdDevPop(column.expr, true)
   }
 
   /** Approximate number of distinct values with state via HLL's */
