@@ -41,40 +41,63 @@ class ColumnProfilerRunner {
   }
 
   private[profiles] def run(
-      data: DataFrame,
-      restrictToColumns: Option[Seq[String]],
-      lowCardinalityHistogramThreshold: Int,
-      printStatusUpdates: Boolean,
-      cacheInputs: Boolean,
-      fileOutputOptions: ColumnProfilerRunBuilderFileOutputOptions,
-      metricsRepositoryOptions: ColumnProfilerRunBuilderMetricsRepositoryOptions,
-      correlation: Boolean,
-      histogram: Boolean,
-      kllProfiling: Boolean,
-      kllParameters: Option[KLLParameters],
-      predefinedTypes: Map[String, DataTypeInstances.Value])
-    : ColumnProfiles = {
+       data: DataFrame,
+       restrictToColumns: Option[Seq[String]],
+       lowCardinalityHistogramThreshold: Int,
+       printStatusUpdates: Boolean,
+       cacheInputs: Boolean,
+       fileOutputOptions: ColumnProfilerRunBuilderFileOutputOptions,
+       metricsRepositoryOptions: ColumnProfilerRunBuilderMetricsRepositoryOptions,
+       correlation: Boolean,
+       histogram: Boolean,
+       kllProfiling: Boolean,
+       kllParameters: Option[KLLParameters],
+       predefinedTypes: Map[String, DataTypeInstances.Value],
+       approximate: Boolean = false,
+       uniquenessCols: Seq[String] = Seq[String]())
+  : ColumnProfiles = {
 
     if (cacheInputs) {
       data.cache()
     }
 
-    val columnProfiles = ColumnProfiler
-      .profile(
-        data,
-        restrictToColumns,
-        printStatusUpdates,
-        lowCardinalityHistogramThreshold,
-        metricsRepositoryOptions.metricsRepository,
-        metricsRepositoryOptions.reuseExistingResultsKey,
-        metricsRepositoryOptions.failIfResultsForReusingMissing,
-        metricsRepositoryOptions.saveOrAppendResultsKey,
-        correlation,
-        histogram,
-        kllProfiling,
-        kllParameters,
-        predefinedTypes
-      )
+    val columnProfiles: ColumnProfiles = {
+      if (approximate) {
+        ColumnProfiler
+          .profile_approx(
+            data,
+            restrictToColumns,
+            printStatusUpdates,
+            lowCardinalityHistogramThreshold,
+            metricsRepositoryOptions.metricsRepository,
+            metricsRepositoryOptions.reuseExistingResultsKey,
+            metricsRepositoryOptions.failIfResultsForReusingMissing,
+            metricsRepositoryOptions.saveOrAppendResultsKey,
+            correlation,
+            histogram,
+            uniquenessCols,
+            kllParameters
+          )
+      } else {
+        ColumnProfiler
+          .profile(
+            data,
+            restrictToColumns,
+            printStatusUpdates,
+            lowCardinalityHistogramThreshold,
+            metricsRepositoryOptions.metricsRepository,
+            metricsRepositoryOptions.reuseExistingResultsKey,
+            metricsRepositoryOptions.failIfResultsForReusingMissing,
+            metricsRepositoryOptions.saveOrAppendResultsKey,
+            correlation,
+            histogram,
+            kllProfiling,
+            kllParameters,
+            predefinedTypes
+          )
+      }
+    }
+
 
     saveColumnProfilesJsonToFileSystemIfNecessary(
       fileOutputOptions,

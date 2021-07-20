@@ -45,6 +45,9 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   protected var kllParameters: Option[KLLParameters] = None
   protected var predefinedTypes: Map[String, DataTypeInstances.Value] = Map.empty
 
+  protected var approximate = false
+  protected var uniquenessCols = Seq[String]()
+
   protected def this(constraintSuggestionRunBuilder: ColumnProfilerRunBuilder) {
 
     this(constraintSuggestionRunBuilder.data)
@@ -69,6 +72,11 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     kllProfiling = constraintSuggestionRunBuilder.kllProfiling
     kllParameters = constraintSuggestionRunBuilder.kllParameters
     predefinedTypes = constraintSuggestionRunBuilder.predefinedTypes
+
+    histogram = constraintSuggestionRunBuilder.histogram
+    correlation = constraintSuggestionRunBuilder.correlation
+    approximate = constraintSuggestionRunBuilder.approximate
+    uniquenessCols = constraintSuggestionRunBuilder.uniquenessCols
   }
 
   /**
@@ -156,6 +164,25 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     this
   }
 
+  /**
+   * Use optimized version of profiler
+   *
+   */
+  def optimize(): this.type = {
+    this.approximate = true
+    this
+  }
+
+  /**
+   * Specify columns which should be analyzed for exact uniqueness, distinctness and entropy
+   *
+   * @param cols dataType map for baseline columns
+   */
+  def withExactUniqueness(uniquenessCols: Seq[String]): this.type = {
+    this.uniquenessCols ++= uniquenessCols
+    this
+  }
+
 
   /**
     * Set a metrics repository associated with the current data to enable features like reusing
@@ -202,7 +229,9 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
       histogram,
       kllProfiling,
       kllParameters,
-      predefinedTypes
+      predefinedTypes,
+      approximate,
+      uniquenessCols
     )
   }
 }

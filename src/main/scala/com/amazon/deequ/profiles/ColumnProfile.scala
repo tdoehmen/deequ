@@ -24,9 +24,9 @@ import com.google.gson.{Gson, GsonBuilder, JsonArray, JsonObject, JsonPrimitive}
 abstract class ColumnProfile {
   def column: String
   def completeness: Double
-  def distinctness: Double
-  def entropy: Double
-  def uniqueness: Double
+  def distinctness: Option[Double]
+  def entropy: Option[Double]
+  def uniqueness: Option[Double]
   def approximateNumDistinctValues: Long
   def dataType: DataTypeInstances.Value
   def isDataTypeInferred: Boolean
@@ -37,9 +37,9 @@ abstract class ColumnProfile {
 case class StandardColumnProfile(
     column: String,
     completeness: Double,
-    distinctness: Double,
-    entropy: Double,
-    uniqueness: Double,
+    distinctness: Option[Double],
+    entropy: Option[Double],
+    uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
@@ -50,9 +50,9 @@ case class StandardColumnProfile(
 case class NumericColumnProfile(
     column: String,
     completeness: Double,
-    distinctness: Double,
-    entropy: Double,
-    uniqueness: Double,
+    distinctness: Option[Double],
+    entropy: Option[Double],
+    uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
@@ -96,9 +96,15 @@ object ColumnProfiles {
       }
 
       columnProfileJson.addProperty("completeness", profile.completeness)
-      columnProfileJson.addProperty("distinctness", profile.distinctness)
-      columnProfileJson.addProperty("entropy", profile.entropy)
-      columnProfileJson.addProperty("uniqueness", profile.uniqueness)
+      if (profile.distinctness.isDefined) {
+        columnProfileJson.addProperty("distinctness", profile.distinctness.get)
+      }
+      if (profile.entropy.isDefined) {
+        columnProfileJson.addProperty("entropy", profile.entropy.get)
+      }
+      if (profile.uniqueness.isDefined) {
+        columnProfileJson.addProperty("uniqueness", profile.uniqueness.get)
+      }
       columnProfileJson.addProperty("approximateNumDistinctValues",
         profile.approximateNumDistinctValues)
 

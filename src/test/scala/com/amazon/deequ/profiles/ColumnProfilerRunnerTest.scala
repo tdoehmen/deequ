@@ -60,7 +60,7 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
             (results, stat.jobCount)
           }
 
-        assert(jobNumberAllCalculations == 3)
+        assert(jobNumberAllCalculations == 11)
         assert(jobNumberReusing == 0)
         assertConstraintSuggestionResultsEquals(separateResults, resultsReusingMetrics)
       }
@@ -196,6 +196,57 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
       assert(results.profiles("att1").asInstanceOf[NumericColumnProfile].kll.isDefined)
       assert(results.profiles("att2").asInstanceOf[NumericColumnProfile].kll.isDefined)
       assert(results.profiles("att3").asInstanceOf[NumericColumnProfile].kll.isDefined)
+    }
+
+    "should run optimized Profiler with two exact uniqueness columns" in
+      withMonitorableSparkSession {(sparkSession, sparkMonitor) =>
+
+      val df = getDfWithNumericValues(sparkSession)
+
+      val (results: ColumnProfiles, jobNumberAllCalculations) = sparkMonitor
+        .withMonitoringSession { stat =>
+          val results = ColumnProfilerRunner()
+            .onData(df)
+            .optimize()
+            .withExactUniqueness(Seq("att1", "att2"))
+            .run()
+
+          (results, stat.jobCount)
+        }
+
+      assert(jobNumberAllCalculations == 7)
+      assert(results.profiles("att1").asInstanceOf[NumericColumnProfile].uniqueness.isDefined)
+      assert(results.profiles("att2").asInstanceOf[NumericColumnProfile].uniqueness.isDefined)
+      assert(results.profiles("att3").asInstanceOf[NumericColumnProfile].uniqueness.isEmpty)
+
+    }
+
+    "should run less jobs with optimized Profiler" in
+      withMonitorableSparkSession { (sparkSession, sparkMonitor) =>
+
+      val df = getDfWithNumericValues(sparkSession)
+
+      val jobNumberUnoptimized = sparkMonitor
+        .withMonitoringSession { stat =>
+          val results = ColumnProfilerRunner()
+            .onData(df)
+            .run()
+
+          stat.jobCount
+        }
+
+      val jobNumberOptimized = sparkMonitor
+        .withMonitoringSession { stat =>
+          val results = ColumnProfilerRunner()
+            .onData(df)
+            .optimize()
+            .run()
+
+          stat.jobCount
+        }
+
+      assert(jobNumberUnoptimized == 11)
+      assert(jobNumberOptimized == 3)
     }
 
   }
