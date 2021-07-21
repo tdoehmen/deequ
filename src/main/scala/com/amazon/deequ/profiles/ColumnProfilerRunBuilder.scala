@@ -39,14 +39,17 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   protected var saveColumnProfilesJsonPath: Option[String] = None
   protected var saveConstraintSuggestionsJsonPath: Option[String] = None
   protected var saveEvaluationResultsJsonPath: Option[String] = None
-  protected var correlation = true
-  protected var histogram = true
+  protected var correlation = false
+  protected var histogram = false
   protected var kllProfiling = false
-  protected var kllParameters: Option[KLLParameters] = None
+  protected var kllParameters: Option[KLLParameters] = Some(KLLParameters(2048,
+                                                                          0.64,
+                                                                          20))
   protected var predefinedTypes: Map[String, DataTypeInstances.Value] = Map.empty
-
-  protected var approximate = false
-  protected var uniquenessCols = Seq[String]()
+  protected var maxCorrelationCols = 100
+  protected var exactUniqueness = false
+  protected var exactUniquenessCols: Option[Seq[String]] = None
+  protected var optimized = true
 
   protected def this(constraintSuggestionRunBuilder: ColumnProfilerRunBuilder) {
 
@@ -69,14 +72,18 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     saveConstraintSuggestionsJsonPath = constraintSuggestionRunBuilder
       .saveConstraintSuggestionsJsonPath
     saveEvaluationResultsJsonPath = constraintSuggestionRunBuilder.saveEvaluationResultsJsonPath
+
+    restrictToColumns = constraintSuggestionRunBuilder.restrictToColumns
+    correlation = constraintSuggestionRunBuilder.correlation
+    maxCorrelationCols = constraintSuggestionRunBuilder.maxCorrelationCols
+    histogram = constraintSuggestionRunBuilder.histogram
+    
     kllProfiling = constraintSuggestionRunBuilder.kllProfiling
     kllParameters = constraintSuggestionRunBuilder.kllParameters
     predefinedTypes = constraintSuggestionRunBuilder.predefinedTypes
-
-    histogram = constraintSuggestionRunBuilder.histogram
-    correlation = constraintSuggestionRunBuilder.correlation
-    approximate = constraintSuggestionRunBuilder.approximate
-    uniquenessCols = constraintSuggestionRunBuilder.uniquenessCols
+    exactUniqueness = constraintSuggestionRunBuilder.exactUniqueness
+    exactUniquenessCols = constraintSuggestionRunBuilder.exactUniquenessCols
+    optimized = constraintSuggestionRunBuilder.optimized
   }
 
   /**
@@ -101,7 +108,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
     * Set the thresholds of values until it is considered to expensive to
-    * calculate the histograms
+    * calculate the histograms (for backwards compatability)
     *
     * @param lowCardinalityHistogramThreshold The threshold
     */
@@ -121,23 +128,53 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   }
 
   /**
-   * Enable correlation profiling on Numerical columns, enabled by default.
+   * Enable correlation profiling on Numerical columns, disabled by default.
    */
-  def withCorrelation(correlation: Boolean): this.type = {
+  def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 100): this.type = {
     this.correlation = correlation
+    this.maxCorrelationCols = maxCorrelationCols
     this
   }
 
   /**
-   * Enable histogram profiling on Numerical columns, enabled by default.
+   * Enable histogram profiling on Numerical and Categorial columns, disabled by default.
    */
-  def withHistogram(histogram: Boolean): this.type = {
+  def withHistogram(histogram: Boolean, maxBuckets: Int = 20): this.type = {
     this.histogram = histogram
+    this.kllProfiling = histogram
+    this.lowCardinalityHistogramThreshold = maxBuckets
+    this.kllParameters = Some(KLLParameters(2048,0.64,maxBuckets))
+    this
+  }
+
+  /**
+   * Enables exact Uniqueness, Entropy and Distinctness for all columns
+   */
+  def withExactUniqueness(exactUniqueness: Boolean): this.type = {
+    this.exactUniqueness = exactUniqueness
+    this
+  }
+
+  /**
+   * Enables exact Uniqueness, Entropy and Distinctness for specified columns
+   */
+  def restrictExactUniquenessColumns(exactUniquenessColumns: Seq[String]): this.type = {
+    this.exactUniquenessCols = Some(exactUniquenessColumns)
+    this
+  }
+
+  /**
+   * Use unoptimized version of profiler (optimizations on by default)
+   *
+   */
+  def nonOptimized(): this.type = {
+    this.optimized = false
     this
   }
 
   /**
    * Enable KLL Sketches profiling on Numerical columns, disabled by default.
+   * (for backwards compatability)
    */
   def withKLLProfiling(): this.type = {
     this.kllProfiling = true
@@ -146,6 +183,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Set KLL parameters.
+   * (for backwards compatability)
    *
    * @param kllParameters kllParameters(sketchSize, shrinkingFactor, numberOfBuckets)
    */
@@ -156,30 +194,12 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Set predefined data types for each column (e.g. baseline)
+   * (for backwards compatability)
    *
    * @param dataTypes dataType map for baseline columns
    */
   def setPredefinedTypes(dataTypes: Map[String, DataTypeInstances.Value]): this.type = {
     this.predefinedTypes = dataTypes
-    this
-  }
-
-  /**
-   * Use optimized version of profiler
-   *
-   */
-  def optimize(): this.type = {
-    this.approximate = true
-    this
-  }
-
-  /**
-   * Specify columns which should be analyzed for exact uniqueness, distinctness and entropy
-   *
-   * @param cols dataType map for baseline columns
-   */
-  def withExactUniqueness(uniquenessCols: Seq[String]): this.type = {
-    this.uniquenessCols ++= uniquenessCols
     this
   }
 
@@ -230,8 +250,10 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
       kllProfiling,
       kllParameters,
       predefinedTypes,
-      approximate,
-      uniquenessCols
+      optimized,
+      maxCorrelationCols,
+      exactUniqueness,
+      exactUniquenessCols
     )
   }
 }

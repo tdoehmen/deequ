@@ -75,7 +75,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val data = getDfWithNumericFractionalValues(session)
 
-        val actualColumnProfile = ColumnProfiler.profile_approx(data, Option(Seq("att1")))
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")))
           .profiles("att1")
 
         val expectedColumnProfile = NumericColumnProfile(
@@ -127,7 +127,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
             5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0,
             5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0,
             6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0)),
-          Some(Map[String, Double]("att1" -> 1.0))
+          Some(Map[String, Double]("att1" -> 1.0, "att2" -> 0.9263710192499128))
         )
 
         assertProfilesEqual(expectedColumnProfile,
@@ -139,8 +139,8 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val data = getDfWithNumericFractionalValues(session)
 
-        val actualColumnProfile = ColumnProfiler.profile_approx(data, Option(Seq("att1")),
-          uniquenessCols = Seq("att1")).profiles("att1")
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1")),
+          exactUniqueness = true, exactUniquenessCols = Some(Seq("att1"))).profiles("att1")
 
         val expectedColumnProfile = NumericColumnProfile(
           "att1",
@@ -203,8 +203,9 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val data = getDfWithNumericFractionalValues(session)
 
-        val actualColumnProfile = ColumnProfiler.profile_approx(data, Option(Seq("item")),
-          uniquenessCols = Seq("item"), histogram = true).profiles("item")
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("item")),
+          exactUniqueness = true, exactUniquenessCols = Some(Seq("item")), histogram = true)
+          .profiles("item")
 
         val expectedColumnProfile = StandardColumnProfile(
           "item",

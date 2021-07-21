@@ -41,46 +41,31 @@ class ColumnProfilerRunner {
   }
 
   private[profiles] def run(
-       data: DataFrame,
-       restrictToColumns: Option[Seq[String]],
-       lowCardinalityHistogramThreshold: Int,
-       printStatusUpdates: Boolean,
-       cacheInputs: Boolean,
-       fileOutputOptions: ColumnProfilerRunBuilderFileOutputOptions,
-       metricsRepositoryOptions: ColumnProfilerRunBuilderMetricsRepositoryOptions,
-       correlation: Boolean,
-       histogram: Boolean,
-       kllProfiling: Boolean,
-       kllParameters: Option[KLLParameters],
-       predefinedTypes: Map[String, DataTypeInstances.Value],
-       approximate: Boolean = false,
-       uniquenessCols: Seq[String] = Seq[String]())
-  : ColumnProfiles = {
+      data: DataFrame,
+      restrictToColumns: Option[Seq[String]],
+      lowCardinalityHistogramThreshold: Int,
+      printStatusUpdates: Boolean,
+      cacheInputs: Boolean,
+      fileOutputOptions: ColumnProfilerRunBuilderFileOutputOptions,
+      metricsRepositoryOptions: ColumnProfilerRunBuilderMetricsRepositoryOptions,
+      correlation: Boolean,
+      histogram: Boolean,
+      kllProfiling: Boolean,
+      kllParameters: Option[KLLParameters],
+      predefinedTypes: Map[String, DataTypeInstances.Value],
+      optimized: Boolean,
+      maxCorrelationCols: Integer,
+      exactUniqueness: Boolean,
+      exactUniquenessCols: Option[Seq[String]])
+    : ColumnProfiles = {
 
     if (cacheInputs) {
       data.cache()
     }
 
     val columnProfiles: ColumnProfiles = {
-      if (approximate) {
-        ColumnProfiler
-          .profile_approx(
-            data,
-            restrictToColumns,
-            printStatusUpdates,
-            lowCardinalityHistogramThreshold,
-            metricsRepositoryOptions.metricsRepository,
-            metricsRepositoryOptions.reuseExistingResultsKey,
-            metricsRepositoryOptions.failIfResultsForReusingMissing,
-            metricsRepositoryOptions.saveOrAppendResultsKey,
-            correlation,
-            histogram,
-            uniquenessCols,
-            kllParameters
-          )
-      } else {
-        ColumnProfiler
-          .profile(
+      if (!optimized) {
+        ColumnProfiler.profile(
             data,
             restrictToColumns,
             printStatusUpdates,
@@ -95,6 +80,25 @@ class ColumnProfilerRunner {
             kllParameters,
             predefinedTypes
           )
+      } else {
+      	ColumnProfiler
+          .profileOptimized(
+            data,
+            restrictToColumns,
+            printStatusUpdates,
+            lowCardinalityHistogramThreshold,
+            metricsRepositoryOptions.metricsRepository,
+            metricsRepositoryOptions.reuseExistingResultsKey,
+            metricsRepositoryOptions.failIfResultsForReusingMissing,
+            metricsRepositoryOptions.saveOrAppendResultsKey,
+            correlation,
+            histogram,
+            exactUniqueness,
+            exactUniquenessCols,
+            maxCorrelationCols,
+            kllParameters
+          )
+        
       }
     }
 

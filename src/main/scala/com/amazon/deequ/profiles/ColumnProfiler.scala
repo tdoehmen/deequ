@@ -17,6 +17,7 @@
 package com.amazon.deequ.profiles
 
 import scala.util.Success
+import scala.collection.mutable.ListBuffer
 
 import com.amazon.deequ.analyzers.DataTypeInstances._
 import com.amazon.deequ.analyzers._
@@ -241,7 +242,7 @@ object ColumnProfiler {
    * @return the profile of columns
    */
   // scalastyle:off argcount
-  private[deequ] def profile_approx(
+  private[deequ] def profileOptimized(
                               data: DataFrame,
                               restrictToColumns: Option[Seq[String]] = None,
                               printStatusUpdates: Boolean = false,
@@ -252,7 +253,9 @@ object ColumnProfiler {
                               saveInMetricsRepositoryUsingKey: Option[ResultKey] = None,
                               correlation: Boolean = true,
                               histogram: Boolean = false,
-                              uniquenessCols: Seq[String] = Seq[String](),
+                              exactUniqueness: Boolean = false,
+                              exactUniquenessCols: Option[Seq[String]] = None,
+                              maxCorrelationCols: Int = 100,
                               kllParameters: Option[KLLParameters] = Some(KLLParameters(2048,
                                                                                         0.64,
                                                                                         20))
@@ -299,12 +302,8 @@ object ColumnProfiler {
     // We compute completeness, approximate number of distinct values for all cols
     // and min, max, mean, stddev, sum, kll and correlations for numeric cols
     // and uniqueness, distinctness and entropy for optional cols
-    val analyzersForGenericStats = data.schema.fields
-        .filter { field => relevantColumns.contains(field.name) }
-        .flatMap { field =>
-
-          val name = field.name
-
+    var correlationCalculatedColumnNames = new ListBuffer[String]()
+    val analyzersForGenericStats = relevantColumns.flatMap { name =>
           val defaultAnalyzers = Seq(Completeness(name), ApproxCountDistinct(name))
           var numericAnalyzers = Seq[Analyzer[_, Metric[_]]]()
           var correlationsAnalyzers = Seq[Analyzer[_, Metric[_]]]()
@@ -313,13 +312,16 @@ object ColumnProfiler {
           if (numericColumnNames.contains(name)) {
              numericAnalyzers = (Seq(Minimum(name), Maximum(name), Mean(name),
                StandardDeviation(name), Sum(name), KLLSketch(name, kllParameters)))
-            if (correlation) {
-              // TODO: we would only need N*(N-1)/2 correlations in total, not N*N
-              correlationsAnalyzers = numericColumnNames.map(x => Correlation(name, x))
+            if (correlation && numericColumnNames.length <= maxCorrelationCols) {
+              correlationCalculatedColumnNames += name
+              correlationsAnalyzers = numericColumnNames
+                .filterNot(x => correlationCalculatedColumnNames.contains(x))
+                .map(x => Correlation(name, x))
             }
           }
 
-          if (uniquenessCols.contains(name)) {
+          if (exactUniqueness && (exactUniquenessCols.isEmpty ||
+            (exactUniquenessCols.isDefined && exactUniquenessCols.get.contains(name)))) {
             uniquenessAnalyzers = Seq(Uniqueness(name), Distinctness(name), Entropy(name))
           }
 
@@ -346,7 +348,7 @@ object ColumnProfiler {
       firstPassResults,
       predefinedTypes)
 
-    val numericStatistics = extractNumericStatistics(firstPassResults)
+    val numericStatistics = extractNumericStatistics(firstPassResults, numericColumnNames)
 
     val secondPassResults = histogram match {
       case true =>
@@ -672,7 +674,9 @@ object ColumnProfiler {
   }
 
 
-  private[this] def extractNumericStatistics(results: AnalyzerContext): NumericColumnStatistics = {
+  private[this] def extractNumericStatistics(results: AnalyzerContext,
+                                             numericColumnNames: Seq[String] = Seq[String]())
+  : NumericColumnStatistics = {
 
     val means = results.metricMap
       .collect { case (analyzer: Mean, metric: DoubleMetric) =>
@@ -750,7 +754,10 @@ object ColumnProfiler {
       .flatten
       .toMap
 
-    val correlation = results.metricMap
+    val correlationDiagonal = numericColumnNames.map { name =>
+      Some((name -> Map(name -> 1.0)))
+    }
+    val correlationLower = results.metricMap
       .collect { case (analyzer: Correlation, metric: DoubleMetric) =>
         metric.value match {
           case Success(metricValue) =>
@@ -758,9 +765,19 @@ object ColumnProfiler {
           case _ => None
         }
       }
-      .flatten
+    val correlationUpper = results.metricMap
+      .collect { case (analyzer: Correlation, metric: DoubleMetric) =>
+        metric.value match {
+          case Success(metricValue) =>
+            Some(analyzer.secondColumn -> Map(analyzer.firstColumn -> metricValue))
+          case _ => None
+        }
+      }
+    val correlation = (correlationLower ++ correlationDiagonal ++ correlationUpper).flatten
       .groupBy(_._1)
-      .map { case (key, value) => value.reduce((x, y) => x._1 -> (x._2.toSeq ++ y._2.toSeq).toMap) }
+      .map { case (key, value) => value.reduce((x, y) => x._1 -> (x._2.toSeq ++ y._2.toSeq).toMap
+        )}
+
 
     NumericColumnStatistics(means, stdDevs, minima, maxima, sums, kll,
       approxPercentiles, correlation)

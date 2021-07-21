@@ -207,8 +207,8 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
         .withMonitoringSession { stat =>
           val results = ColumnProfilerRunner()
             .onData(df)
-            .optimize()
-            .withExactUniqueness(Seq("att1", "att2"))
+            .withExactUniqueness(true)
+            .restrictExactUniquenessColumns(Seq("att1", "att2"))
             .run()
 
           (results, stat.jobCount)
@@ -239,7 +239,6 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
         .withMonitoringSession { stat =>
           val results = ColumnProfilerRunner()
             .onData(df)
-            .optimize()
             .run()
 
           stat.jobCount
