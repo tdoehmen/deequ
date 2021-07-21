@@ -159,11 +159,15 @@ object ColumnProfiles {
             val kllSketchJson = new JsonObject()
 
             val tmp = new JsonArray()
+            var totalCount = kllSketch.buckets.foldLeft(0.0)(_+_.count)
+            if (totalCount == 0) totalCount = 1
+
             kllSketch.buckets.foreach{bucket =>
               val entry = new JsonObject()
               entry.addProperty("low_value", bucket.lowValue)
               entry.addProperty("high_value", bucket.highValue)
               entry.addProperty("count", bucket.count)
+              entry.addProperty("ratio", bucket.count/totalCount)
               tmp.add(entry)
             }
 
