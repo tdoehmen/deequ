@@ -129,6 +129,9 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Enable correlation profiling on Numerical columns, disabled by default.
+   *
+   * @param correlation Enable oder disable correlation profiling
+   * @param maxCorrelationCols The maximum number of columns to calculate correlations on
    */
   def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 100): this.type = {
     this.correlation = correlation
@@ -138,6 +141,9 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Enable histogram profiling on Numerical and Categorial columns, disabled by default.
+   *
+   * @param histogram Enable oder disable histogram profiling
+   * @param maxBuckets The maximum number of distinct values to calculate the histogram for
    */
   def withHistogram(histogram: Boolean, maxBuckets: Int = 20): this.type = {
     this.histogram = histogram
@@ -149,6 +155,8 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Enables exact Uniqueness, Entropy and Distinctness for all columns
+   *
+   * @param exactUniqueness Enable oder disable uniqueness, entropy and distinctness profiling
    */
   def withExactUniqueness(exactUniqueness: Boolean): this.type = {
     this.exactUniqueness = exactUniqueness
@@ -157,6 +165,8 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Enables exact Uniqueness, Entropy and Distinctness for specified columns
+   *
+   * @param exactUniquenessColumns List of columns that should be selected for uniqueness profiling
    */
   def restrictExactUniquenessColumns(exactUniquenessColumns: Seq[String]): this.type = {
     this.exactUniquenessCols = Some(exactUniquenessColumns)

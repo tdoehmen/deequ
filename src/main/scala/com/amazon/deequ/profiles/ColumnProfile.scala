@@ -171,6 +171,19 @@ object ColumnProfiles {
               tmp.add(entry)
             }
 
+            if (profile.histogram.isEmpty) {
+              val histogramJson = new JsonArray()
+              kllSketch.buckets.foreach{bucket =>
+                val histogramEntry = new JsonObject()
+                histogramEntry.addProperty("value", bucket.lowValue+"-"+bucket.highValue)
+                histogramEntry.addProperty("count", bucket.count)
+                histogramEntry.addProperty("ratio", bucket.count/totalCount)
+                histogramJson.add(histogramEntry)
+              }
+
+              columnProfileJson.add("histogram", histogramJson)
+            }
+
             kllSketchJson.add("buckets", tmp)
             val entry = new JsonObject()
             entry.addProperty("c", kllSketch.parameters(0))
