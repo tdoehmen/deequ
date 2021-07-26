@@ -57,6 +57,10 @@ private[deequ] case class NumericColumnStatistics(
     correlation: Map[String, Map[String, Double]]
 )
 
+private[deequ] case class MetricStates(
+    approximateNumDistinctWords: Map[String, Seq[Long]]
+)
+
 private[deequ] case class CategoricalColumnStatistics(histograms: Map[String, Distribution])
 
 /** Computes single-column profiles in three scans over the data, intented for large (TB) datasets
@@ -259,7 +263,7 @@ object ColumnProfiler {
                               kllParameters: Option[KLLParameters] = Some(KLLParameters(2048,
                                                                                         0.64,
                                                                                         20))
-                                   )
+                            )
   : ColumnProfiles = {
 
     // Ensure that all desired columns exist
@@ -303,7 +307,10 @@ object ColumnProfiler {
     // and min, max, mean, stddev, sum, kll and correlations for numeric cols
     // and uniqueness, distinctness and entropy for optional cols
     var correlationCalculatedColumnNames = new ListBuffer[String]()
+    val approxCountDistinctAnalyzers = new ListBuffer[ApproxCountDistinct]()
     val analyzersForGenericStats = relevantColumns.flatMap { name =>
+          approxCountDistinctAnalyzers.append(ApproxCountDistinct(name))
+
           val defaultAnalyzers = Seq(Completeness(name), ApproxCountDistinct(name))
           var numericAnalyzers = Seq[Analyzer[_, Metric[_]]]()
           var correlationsAnalyzers = Seq[Analyzer[_, Metric[_]]]()
@@ -328,10 +335,13 @@ object ColumnProfiler {
           defaultAnalyzers ++ numericAnalyzers ++ correlationsAnalyzers ++ uniquenessAnalyzers
         }
 
+    val statePersister = InMemoryStateProvider(Some(approxCountDistinctAnalyzers))
+
     var analysisRunnerFirstPass = AnalysisRunner
       .onData(data)
       .addAnalyzers(analyzersForGenericStats)
       .addAnalyzer(Size())
+      .useStatePersister(statePersister)
 
     analysisRunnerFirstPass = setMetricsRepositoryConfigurationIfNecessary(
       analysisRunnerFirstPass,
@@ -349,6 +359,8 @@ object ColumnProfiler {
       predefinedTypes)
 
     val numericStatistics = extractNumericStatistics(firstPassResults, numericColumnNames)
+
+    val metricStates = extractMetricStates(statePersister, approxCountDistinctAnalyzers)
 
     val secondPassResults = histogram match {
       case true =>
@@ -388,7 +400,7 @@ object ColumnProfiler {
     }
 
     createProfiles(relevantColumns, genericStatistics, numericStatistics,
-      CategoricalColumnStatistics(secondPassResults))
+      CategoricalColumnStatistics(secondPassResults), Some(metricStates))
   }
 
   private[this] def getRelevantColumns(
@@ -783,6 +795,23 @@ object ColumnProfiler {
       approxPercentiles, correlation)
   }
 
+  private[this] def extractMetricStates(stateProvider: InMemoryStateProvider,
+                                        approxCountDistinctAnalyzers: Seq[ApproxCountDistinct])
+  : MetricStates = {
+
+    val approximateNumDistinctWords = approxCountDistinctAnalyzers.foldLeft(Map[String, Seq[Long]]()){
+      (m, analyzer) =>
+        val state = stateProvider.load(analyzer)
+        if (state.isDefined){
+          m + (analyzer.column -> state.get.words.toSeq)
+        } else {
+          m + (analyzer.column -> Seq[Long]())
+        }
+    }
+
+    MetricStates(approximateNumDistinctWords)
+  }
+
   /* Identifies all columns, which:
    *
    * (1) have string, boolean, double, float, integer, long, or short data type
@@ -915,7 +944,8 @@ object ColumnProfiler {
       columns: Seq[String],
       genericStats: GenericColumnStatistics,
       numericStats: NumericColumnStatistics,
-      categoricalStats: CategoricalColumnStatistics)
+      categoricalStats: CategoricalColumnStatistics,
+      metricStates: Option[MetricStates] = None)
     : ColumnProfiles = {
 
     val profiles = columns
@@ -931,6 +961,9 @@ object ColumnProfiler {
         val histogram = categoricalStats.histograms.get(name)
 
         val typeCounts = genericStats.typeDetectionHistograms.getOrElse(name, Map.empty)
+
+        val approxNumDistinctState = metricStates.getOrElse(new MetricStates(Map[String,Seq[Long]]()))
+          .approximateNumDistinctWords.get(name)
 
         val profile = genericStats.typeOf(name) match {
 
@@ -953,7 +986,8 @@ object ColumnProfiler {
               numericStats.sums.get(name),
               numericStats.stdDevs.get(name),
               numericStats.approxPercentiles.get(name),
-              numericStats.correlation.get(name)
+              numericStats.correlation.get(name),
+              approxNumDistinctState
             )
 
           case _ =>
@@ -967,7 +1001,8 @@ object ColumnProfiler {
               dataType,
               isDataTypeInferred,
               typeCounts,
-              histogram)
+              histogram,
+              approxNumDistinctState)
         }
 
         name -> profile

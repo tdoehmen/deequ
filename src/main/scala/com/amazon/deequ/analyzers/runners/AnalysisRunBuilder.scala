@@ -16,10 +16,11 @@
 
 package com.amazon.deequ.analyzers.runners
 
-import com.amazon.deequ.analyzers.Analyzer
+import com.amazon.deequ.analyzers.{Analyzer, StateLoader, StatePersister}
 import com.amazon.deequ.metrics.Metric
 import com.amazon.deequ.repository.{MetricsRepository, ResultKey}
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.storage.StorageLevel
 
 /** A class to build an AnalysisRun using a fluent API */
 class AnalysisRunBuilder(val data: DataFrame) {
@@ -36,6 +37,9 @@ class AnalysisRunBuilder(val data: DataFrame) {
   protected var saveSuccessMetricsJsonPath: Option[String] = None
   protected var overwriteOutputFiles: Boolean = false
 
+  protected var aggregateWith: Option[StateLoader] = None
+  protected var saveStatesWith: Option[StatePersister] = None
+
   protected def this(analysisRunBuilder: AnalysisRunBuilder) {
 
     this(analysisRunBuilder.data)
@@ -51,6 +55,9 @@ class AnalysisRunBuilder(val data: DataFrame) {
     sparkSession = analysisRunBuilder.sparkSession
     overwriteOutputFiles = analysisRunBuilder.overwriteOutputFiles
     saveSuccessMetricsJsonPath = analysisRunBuilder.saveSuccessMetricsJsonPath
+
+    aggregateWith = analysisRunBuilder.aggregateWith
+    saveStatesWith = analysisRunBuilder.saveStatesWith
   }
 
    /**
@@ -97,6 +104,28 @@ class AnalysisRunBuilder(val data: DataFrame) {
     new AnalysisRunBuilderWithSparkSession(this, Option(sparkSession))
   }
 
+  /**
+   * Use a StateLoader to load previous states
+   *
+   * @param stateLoader The StateLoader
+   */
+  def useStateLoader(stateLoader: StateLoader)
+  : this.type = {
+    this.aggregateWith = Some(stateLoader)
+    this
+  }
+
+  /**
+   * Use a StatePersister to store states
+   *
+   * @param statePersister The StatePersister
+   */
+  def useStatePersister(statePersister: StatePersister)
+  : this.type = {
+    this.saveStatesWith = Some(statePersister)
+    this
+  }
+
   def run(): AnalyzerContext = {
     AnalysisRunner.doAnalysisRun(
       data,
@@ -111,7 +140,9 @@ class AnalysisRunBuilder(val data: DataFrame) {
         sparkSession,
         saveSuccessMetricsJsonPath,
         overwriteOutputFiles
-      )
+      ),
+      aggregateWith = aggregateWith,
+      saveStatesWith = saveStatesWith
     )
   }
 }

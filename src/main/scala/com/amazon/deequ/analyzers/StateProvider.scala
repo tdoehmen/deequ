@@ -18,6 +18,7 @@ package com.amazon.deequ.analyzers
 
 import java.util.concurrent.ConcurrentHashMap
 
+import com.amazon.deequ.metrics.Metric
 import com.google.common.io.Closeables
 import org.apache.hadoop.fs.{FSDataInputStream, FSDataOutputStream, FileSystem, Path}
 import org.apache.spark.sql.SparkSession
@@ -43,8 +44,13 @@ trait StatePersister {
   def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S)
 }
 
-/** Store states in memory */
-case class InMemoryStateProvider() extends StateLoader with StatePersister {
+/** Store states in memory
+ *
+ * @param selectedAnalyzers Analyzers whose state should be persisted (optional). If not set, all states will be
+ *                          persisted
+ * */
+case class InMemoryStateProvider(private val selectedAnalyzers: Option[Seq[Analyzer[_,_]]] = None) extends
+  StateLoader with StatePersister {
 
   private[this] val statesByAnalyzer = new ConcurrentHashMap[Analyzer[_, _], State[_]]()
 
@@ -53,6 +59,10 @@ case class InMemoryStateProvider() extends StateLoader with StatePersister {
   }
 
   override def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
+    if (selectedAnalyzers.nonEmpty && !selectedAnalyzers.get.contains(analyzer)){
+      return
+    }
+
     statesByAnalyzer.put(analyzer, state)
   }
 
@@ -69,7 +79,7 @@ case class InMemoryStateProvider() extends StateLoader with StatePersister {
   }
 }
 
-/** Store states on a filesystem (supports local disk, HDFS, S3) */
+/** Store states on a filesystem (supports local disk, HDFS, S3) * */
 case class HdfsStateProvider(
     session: SparkSession,
     locationPrefix: String,
@@ -84,7 +94,6 @@ case class HdfsStateProvider(
   }
 
   override def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
-
     val identifier = toIdentifier(analyzer)
 
     analyzer match {
