@@ -262,7 +262,8 @@ object ColumnProfiler {
                               maxCorrelationCols: Int = 100,
                               kllParameters: Option[KLLParameters] = Some(KLLParameters(2048,
                                                                                         0.64,
-                                                                                        20))
+                                                                                        20)),
+                              stateRepository: InMemoryStateProvider = InMemoryStateProvider()
                             )
   : ColumnProfiles = {
 
@@ -335,13 +336,13 @@ object ColumnProfiler {
           defaultAnalyzers ++ numericAnalyzers ++ correlationsAnalyzers ++ uniquenessAnalyzers
         }
 
-    val statePersister = InMemoryStateProvider(Some(approxCountDistinctAnalyzers))
+    stateRepository.restrictToAnalyzers(approxCountDistinctAnalyzers)
 
     var analysisRunnerFirstPass = AnalysisRunner
       .onData(data)
       .addAnalyzers(analyzersForGenericStats)
       .addAnalyzer(Size())
-      .useStatePersister(statePersister)
+      .useStatePersister(stateRepository)
 
     analysisRunnerFirstPass = setMetricsRepositoryConfigurationIfNecessary(
       analysisRunnerFirstPass,
@@ -360,7 +361,7 @@ object ColumnProfiler {
 
     val numericStatistics = extractNumericStatistics(firstPassResults, numericColumnNames)
 
-    val metricStates = extractMetricStates(statePersister, approxCountDistinctAnalyzers)
+    val metricStates = extractMetricStates(stateRepository, approxCountDistinctAnalyzers)
 
     val secondPassResults = histogram match {
       case true =>
@@ -962,7 +963,7 @@ object ColumnProfiler {
 
         val typeCounts = genericStats.typeDetectionHistograms.getOrElse(name, Map.empty)
 
-        val approxNumDistinctState = metricStates.getOrElse(new MetricStates(Map[String,Seq[Long]]()))
+        val approxNumDistinctState = metricStates.getOrElse(MetricStates(Map[String,Seq[Long]]()))
           .approximateNumDistinctWords.get(name)
 
         val profile = genericStats.typeOf(name) match {

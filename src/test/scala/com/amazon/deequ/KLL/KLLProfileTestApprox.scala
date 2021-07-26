@@ -146,7 +146,9 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
         val profiles = profile.profiles.map{pro => pro._2}.toSeq
         val json_profile = ColumnProfiles.toJson(profiles)
         val correct_profile = "{\"columns\":[{\"column\":\"att1\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":6,\"mean\":3.5," +
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":6," +
+          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,72057594037927936," +
+          "0,0,0,0,0,0,0,0,0,0,0,0,0,0,4398046511104,0,0,13194139533312,0,0,64,0,0,0,0,0,1],\"mean\":3.5," +
           "\"maximum\":6.0,\"minimum\":1.0,\"sum\":21.0,\"stdDev\":1.707825127659933," +
           "\"correlations\":[{\"column\":\"att2\",\"correlation\":0.9263710192499128},{\"column\":\"att1\"," +
           "\"correlation\":1.0}],\"histogram\":[{\"value\":\"1.0-1.25\",\"count\":1,\"ratio\":0.16666666666666666}," +
@@ -181,7 +183,9 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           "3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0," +
           "4.0,4.0,4.0,4.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0,6.0,6.0,6.0," +
           "6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0]},{\"column\":\"att2\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":4,\"mean\":3.0," +
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":4," +
+          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,18014398509481984,0,0,0,0,0,0,0,0,0,0,0,0,0," +
+          "0,0,0,0,0,0,0,0,0,0,0,206158430208,0,0,4398046511104,0,0,0,0,0,0,0,0,0,0,0,0],\"mean\":3.0," +
           "\"maximum\":7.0,\"minimum\":0.0,\"sum\":18.0,\"stdDev\":3.0550504633038935," +
           "\"correlations\":[{\"column\":\"att2\",\"correlation\":1.0},{\"column\":\"att1\"," +
           "\"correlation\":0.9263710192499128}],\"histogram\":[{\"value\":\"0.0-0.35\",\"count\":3,\"ratio\":0.5}," +

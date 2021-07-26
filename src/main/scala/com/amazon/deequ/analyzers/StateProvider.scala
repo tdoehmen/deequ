@@ -40,17 +40,27 @@ trait StateLoader {
 }
 
 /** Persist a state for an analyzer */
-trait StatePersister {
-  def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S)
+abstract class StatePersister {
+  protected var selectedAnalyzers: Seq[Analyzer[_,_]] = Seq[Analyzer[_,_]]()
+
+  protected def persistImpl[S <: State[_]](analyzer: Analyzer[S, _], state: S)
+
+  def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit ={
+      if (selectedAnalyzers.nonEmpty && !selectedAnalyzers.contains(analyzer)){
+        return
+      }
+
+      persistImpl(analyzer, state)
+  }
+
+  def restrictToAnalyzers(selectedAnalyzers: Seq[Analyzer[_,_]]): Unit = {
+    this.selectedAnalyzers = this.selectedAnalyzers ++ selectedAnalyzers
+  }
 }
 
-/** Store states in memory
- *
- * @param selectedAnalyzers Analyzers whose state should be persisted (optional). If not set, all states will be
- *                          persisted
- * */
-case class InMemoryStateProvider(private val selectedAnalyzers: Option[Seq[Analyzer[_,_]]] = None) extends
-  StateLoader with StatePersister {
+/** Store states in memory * */
+case class InMemoryStateProvider() extends
+  StatePersister with StateLoader {
 
   private[this] val statesByAnalyzer = new ConcurrentHashMap[Analyzer[_, _], State[_]]()
 
@@ -58,11 +68,7 @@ case class InMemoryStateProvider(private val selectedAnalyzers: Option[Seq[Analy
     Option(statesByAnalyzer.get(analyzer).asInstanceOf[S])
   }
 
-  override def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
-    if (selectedAnalyzers.nonEmpty && !selectedAnalyzers.get.contains(analyzer)){
-      return
-    }
-
+  override def persistImpl[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
     statesByAnalyzer.put(analyzer, state)
   }
 
@@ -85,7 +91,7 @@ case class HdfsStateProvider(
     locationPrefix: String,
     numPartitionsForHistogram: Int = 10,
     allowOverwrite: Boolean = false)
-  extends StateLoader with StatePersister {
+  extends StatePersister with StateLoader {
 
   import com.amazon.deequ.io.DfsUtils._
 
@@ -93,7 +99,7 @@ case class HdfsStateProvider(
     MurmurHash3.stringHash(analyzer.toString, 42).toString
   }
 
-  override def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
+  override def persistImpl[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
     val identifier = toIdentifier(analyzer)
 
     analyzer match {

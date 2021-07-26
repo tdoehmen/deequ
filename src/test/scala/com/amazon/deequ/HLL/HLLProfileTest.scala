@@ -17,9 +17,8 @@
 package com.amazon.deequ.HLL
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.{ApproxCountDistinct, DataTypeInstances, InMemoryStateProvider, KLLParameters, Size}
-import com.amazon.deequ.metrics.{BucketDistribution, BucketValue, Distribution, DistributionValue}
-import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles, NumericColumnProfile, StandardColumnProfile}
+import com.amazon.deequ.analyzers.{ApproxCountDistinct, InMemoryStateProvider, Size}
+import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
 import com.amazon.deequ.utils.FixtureSupport
 import org.scalatest.{Matchers, WordSpec}
 import org.apache.spark.sql.catalyst.expressions.aggregate.DeequHyperLogLogPlusPlusUtils
@@ -48,17 +47,14 @@ class HLLProfileTest extends WordSpec with Matchers with SparkContextSpec
         data.show(10)
         println("did not contain: "+data.filter("att2 >= 1000000").count())
 
-        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")))
+        val stateRepository = InMemoryStateProvider()
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")), stateRepository = stateRepository)
 
         val profile1 = actualColumnProfile.profiles.get("att1")
         val profile2 = actualColumnProfile.profiles.get("att2")
 
         println("profile1.get.approximateNumDistinctValues: "+profile1.get.approximateNumDistinctValues)
         println("profile2.get.approximateNumDistinctValues: "+profile2.get.approximateNumDistinctValues)
-
-        /*
-        val stateRepository = InMemoryStateProvider(Some(List(ApproxCountDistinct("att1"),ApproxCountDistinct
-        ("att2"))))
 
         val state1 = stateRepository.load(ApproxCountDistinct("att1"))
         val state2 = stateRepository.load(ApproxCountDistinct("att2"))
@@ -80,7 +76,7 @@ class HLLProfileTest extends WordSpec with Matchers with SparkContextSpec
         val countMerged = DeequHyperLogLogPlusPlusUtils.count(wordsMerged)
 
         println("countMerged: "+countMerged)
-        */
+
         val profiles = actualColumnProfile.profiles.map{pro => pro._2}.toSeq
         val json_profile = ColumnProfiles.toJson(profiles)
         println(json_profile)
