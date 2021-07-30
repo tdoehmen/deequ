@@ -95,10 +95,10 @@ object ColumnProfiles {
         }
       }
 
-      columnProfileJson.addProperty("completeness", profile.completeness)
-      columnProfileJson.addProperty("distinctness", profile.distinctness)
-      columnProfileJson.addProperty("entropy", profile.entropy)
-      columnProfileJson.addProperty("uniqueness", profile.uniqueness)
+      columnProfileJson.addProperty("completeness", normalizeDouble(profile.completeness))
+      columnProfileJson.addProperty("distinctness", normalizeDouble(profile.distinctness))
+      columnProfileJson.addProperty("entropy", normalizeDouble(profile.entropy))
+      columnProfileJson.addProperty("uniqueness", normalizeDouble(profile.uniqueness))
       columnProfileJson.addProperty("approximateNumDistinctValues",
         profile.approximateNumDistinctValues)
 
@@ -110,7 +110,7 @@ object ColumnProfiles {
           val histogramEntry = new JsonObject()
           histogramEntry.addProperty("value", name)
           histogramEntry.addProperty("count", distributionValue.absolute)
-          histogramEntry.addProperty("ratio", distributionValue.ratio)
+          histogramEntry.addProperty("ratio", normalizeDouble(distributionValue.ratio))
           histogramJson.add(histogramEntry)
         }
 
@@ -120,19 +120,19 @@ object ColumnProfiles {
       profile match {
         case numericColumnProfile: NumericColumnProfile =>
           numericColumnProfile.mean.foreach { mean =>
-            columnProfileJson.addProperty("mean", mean)
+            columnProfileJson.addProperty("mean", normalizeDouble(mean))
           }
           numericColumnProfile.maximum.foreach { maximum =>
-            columnProfileJson.addProperty("maximum", maximum)
+            columnProfileJson.addProperty("maximum", normalizeDouble(maximum))
           }
           numericColumnProfile.minimum.foreach { minimum =>
-            columnProfileJson.addProperty("minimum", minimum)
+            columnProfileJson.addProperty("minimum", normalizeDouble(minimum))
           }
           numericColumnProfile.sum.foreach { sum =>
-            columnProfileJson.addProperty("sum", sum)
+            columnProfileJson.addProperty("sum", normalizeDouble(sum))
           }
           numericColumnProfile.stdDev.foreach { stdDev =>
-            columnProfileJson.addProperty("stdDev", stdDev)
+            columnProfileJson.addProperty("stdDev", normalizeDouble(stdDev))
           }
 
           // correlation
@@ -141,7 +141,7 @@ object ColumnProfiles {
             numericColumnProfile.correlation.get.foreach { correlation =>
               val correlationJson = new JsonObject()
               correlationJson.addProperty("column", correlation._1)
-              correlationJson.addProperty("correlation", correlation._2)
+              correlationJson.addProperty("correlation", normalizeDouble(correlation._2))
               correlationsJson.add(correlationJson)
             }
             columnProfileJson.add("correlations", correlationsJson)
@@ -155,8 +155,8 @@ object ColumnProfiles {
             val tmp = new JsonArray()
             kllSketch.buckets.foreach{bucket =>
               val entry = new JsonObject()
-              entry.addProperty("low_value", bucket.lowValue)
-              entry.addProperty("high_value", bucket.highValue)
+              entry.addProperty("low_value", normalizeDouble(bucket.lowValue))
+              entry.addProperty("high_value", normalizeDouble(bucket.highValue))
               entry.addProperty("count", bucket.count)
               tmp.add(entry)
             }
@@ -194,10 +194,22 @@ object ColumnProfiles {
 
     json.add("columns", columns)
 
-    val gson = new GsonBuilder()
+    val gson = new GsonBuilder().serializeNulls()
       // .setPrettyPrinting()
       .create()
 
     gson.toJson(json)
+  }
+
+  def normalizeDouble(numeric: Double): java.lang.Double ={
+    if (numeric.isNaN) {
+      null.asInstanceOf[java.lang.Double]
+    } else if (numeric.isNegInfinity) {
+      Double.MinValue
+    } else if(numeric.isPosInfinity) {
+      Double.MaxValue
+    } else {
+      numeric
+    }
   }
 }
