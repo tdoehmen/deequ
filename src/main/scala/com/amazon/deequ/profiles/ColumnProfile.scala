@@ -201,12 +201,12 @@ object ColumnProfiles {
     gson.toJson(json)
   }
 
-  def normalizeDouble(numeric: Double): java.lang.Double ={
+  def normalizeDouble(numeric: Double): java.lang.Double = {
     if (numeric.isNaN) {
       null.asInstanceOf[java.lang.Double]
     } else if (numeric.isNegInfinity) {
       Double.MinValue
-    } else if(numeric.isPosInfinity) {
+    } else if (numeric.isPosInfinity) {
       Double.MaxValue
     } else {
       numeric
