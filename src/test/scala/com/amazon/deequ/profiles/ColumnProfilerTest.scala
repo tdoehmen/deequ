@@ -603,8 +603,7 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
       import session.implicits._
       import org.apache.spark.sql.functions
 
-      var data = session.sparkContext.range(0, nRows).toDF()
-                        .select(functions.col("value"))
+      var data = session.sparkContext.range(0, nRows).toDF().select(functions.col("value"))
       data = data.withColumnRenamed("value", "att0")
       data = data.withColumn("att1", lit(0.0).cast(LongType))
       data = data.withColumn("att2", lit(0.0).cast(LongType))
