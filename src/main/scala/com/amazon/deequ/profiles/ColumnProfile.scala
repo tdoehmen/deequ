@@ -175,7 +175,8 @@ object ColumnProfiles {
               val histogramJson = new JsonArray()
               kllSketch.buckets.foreach{bucket =>
                 val histogramEntry = new JsonObject()
-                histogramEntry.addProperty("value", bucket.lowValue+"-"+bucket.highValue)
+                histogramEntry.addProperty("value", "%.2f".format(bucket.lowValue) + "-" + "%.2f"
+                  .format(bucket.highValue))
                 histogramEntry.addProperty("count", bucket.count)
                 histogramEntry.addProperty("ratio", bucket.count/totalCount)
                 histogramJson.add(histogramEntry)
