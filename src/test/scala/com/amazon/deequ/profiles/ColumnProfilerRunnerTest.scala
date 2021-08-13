@@ -60,7 +60,7 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
             (results, stat.jobCount)
           }
 
-        assert(jobNumberAllCalculations == 11)
+        assert(jobNumberAllCalculations == 2)
         assert(jobNumberReusing == 0)
         assertConstraintSuggestionResultsEquals(separateResults, resultsReusingMetrics)
       }
@@ -214,7 +214,7 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
           (results, stat.jobCount)
         }
 
-      assert(jobNumberAllCalculations == 7)
+      assert(jobNumberAllCalculations == 6)
       assert(results.profiles("att1").asInstanceOf[NumericColumnProfile].uniqueness.isDefined)
       assert(results.profiles("att2").asInstanceOf[NumericColumnProfile].uniqueness.isDefined)
       assert(results.profiles("att3").asInstanceOf[NumericColumnProfile].uniqueness.isEmpty)
@@ -230,6 +230,7 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
         .withMonitoringSession { stat =>
           val results = ColumnProfilerRunner()
             .onData(df)
+            .nonOptimized()
             .run()
 
           stat.jobCount
@@ -244,8 +245,8 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
           stat.jobCount
         }
 
-      assert(jobNumberUnoptimized == 11)
-      assert(jobNumberOptimized == 3)
+      assert(jobNumberUnoptimized == 10)
+      assert(jobNumberOptimized == 2)
     }
 
   }

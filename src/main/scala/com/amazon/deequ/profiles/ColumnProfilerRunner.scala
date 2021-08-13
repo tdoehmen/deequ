@@ -54,10 +54,10 @@ class ColumnProfilerRunner {
       kllParameters: Option[KLLParameters],
       predefinedTypes: Map[String, DataTypeInstances.Value],
       optimized: Boolean,
-      maxCorrelationCols: Integer,
+      maxCorrelationCols: Option[Int],
       exactUniqueness: Boolean,
       exactUniquenessCols: Option[Seq[String]])
-    : ColumnProfiles = {
+  : ColumnProfiles = {
 
     if (cacheInputs) {
       data.cache()
@@ -81,8 +81,7 @@ class ColumnProfilerRunner {
             predefinedTypes
           )
       } else {
-      	ColumnProfiler
-          .profileOptimized(
+        ColumnProfiler.profileOptimized(
             data,
             restrictToColumns,
             printStatusUpdates,
@@ -98,7 +97,6 @@ class ColumnProfilerRunner {
             maxCorrelationCols,
             kllParameters
           )
-        
       }
     }
 

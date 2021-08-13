@@ -41,19 +41,19 @@ trait StateLoader {
 
 /** Persist a state for an analyzer */
 abstract class StatePersister {
-  protected var selectedAnalyzers: Seq[Analyzer[_,_]] = Seq[Analyzer[_,_]]()
+  protected var selectedAnalyzers: Seq[Analyzer[_, _]] = Seq[Analyzer[_, _]]()
 
   protected def persistImpl[S <: State[_]](analyzer: Analyzer[S, _], state: S)
 
-  def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit ={
-      if (selectedAnalyzers.nonEmpty && !selectedAnalyzers.contains(analyzer)){
+  def persist[S <: State[_]](analyzer: Analyzer[S, _], state: S): Unit = {
+      if (selectedAnalyzers.nonEmpty && !selectedAnalyzers.contains(analyzer)) {
         return
       }
 
       persistImpl(analyzer, state)
   }
 
-  def restrictToAnalyzers(selectedAnalyzers: Seq[Analyzer[_,_]]): Unit = {
+  def restrictToAnalyzers(selectedAnalyzers: Seq[Analyzer[_, _]]): Unit = {
     this.selectedAnalyzers = this.selectedAnalyzers ++ selectedAnalyzers
   }
 }

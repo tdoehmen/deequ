@@ -98,16 +98,17 @@ object ColumnProfiles {
         }
       }
 
-      columnProfileJson.addProperty("completeness", profile.completeness)
+      columnProfileJson.addProperty("completeness", normalizeDouble(profile.completeness))
       if (profile.distinctness.isDefined) {
-        columnProfileJson.addProperty("distinctness", profile.distinctness.get)
+        columnProfileJson.addProperty("distinctness", normalizeDouble(profile.distinctness.get))
       }
       if (profile.entropy.isDefined) {
-        columnProfileJson.addProperty("entropy", profile.entropy.get)
+        columnProfileJson.addProperty("entropy", normalizeDouble(profile.entropy.get))
       }
       if (profile.uniqueness.isDefined) {
-        columnProfileJson.addProperty("uniqueness", profile.uniqueness.get)
+        columnProfileJson.addProperty("uniqueness", normalizeDouble(profile.uniqueness.get))
       }
+
       columnProfileJson.addProperty("approximateNumDistinctValues",
         profile.approximateNumDistinctValues)
 
@@ -127,7 +128,7 @@ object ColumnProfiles {
           val histogramEntry = new JsonObject()
           histogramEntry.addProperty("value", name)
           histogramEntry.addProperty("count", distributionValue.absolute)
-          histogramEntry.addProperty("ratio", distributionValue.ratio)
+          histogramEntry.addProperty("ratio", normalizeDouble(distributionValue.ratio))
           histogramJson.add(histogramEntry)
         }
 
@@ -137,19 +138,19 @@ object ColumnProfiles {
       profile match {
         case numericColumnProfile: NumericColumnProfile =>
           numericColumnProfile.mean.foreach { mean =>
-            columnProfileJson.addProperty("mean", mean)
+            columnProfileJson.addProperty("mean", normalizeDouble(mean))
           }
           numericColumnProfile.maximum.foreach { maximum =>
-            columnProfileJson.addProperty("maximum", maximum)
+            columnProfileJson.addProperty("maximum", normalizeDouble(maximum))
           }
           numericColumnProfile.minimum.foreach { minimum =>
-            columnProfileJson.addProperty("minimum", minimum)
+            columnProfileJson.addProperty("minimum", normalizeDouble(minimum))
           }
           numericColumnProfile.sum.foreach { sum =>
-            columnProfileJson.addProperty("sum", sum)
+            columnProfileJson.addProperty("sum", normalizeDouble(sum))
           }
           numericColumnProfile.stdDev.foreach { stdDev =>
-            columnProfileJson.addProperty("stdDev", stdDev)
+            columnProfileJson.addProperty("stdDev", normalizeDouble(stdDev))
           }
 
           // correlation
@@ -158,7 +159,7 @@ object ColumnProfiles {
             numericColumnProfile.correlation.get.foreach { correlation =>
               val correlationJson = new JsonObject()
               correlationJson.addProperty("column", correlation._1)
-              correlationJson.addProperty("correlation", correlation._2)
+              correlationJson.addProperty("correlation", normalizeDouble(correlation._2))
               correlationsJson.add(correlationJson)
             }
             columnProfileJson.add("correlations", correlationsJson)
@@ -170,13 +171,13 @@ object ColumnProfiles {
             val kllSketchJson = new JsonObject()
 
             val tmp = new JsonArray()
-            var totalCount = kllSketch.buckets.foldLeft(0.0)(_+_.count)
+            var totalCount = kllSketch.buckets.foldLeft(0.0)(_ + _.count)
             if (totalCount == 0) totalCount = 1
 
             kllSketch.buckets.foreach{bucket =>
               val entry = new JsonObject()
-              entry.addProperty("low_value", bucket.lowValue)
-              entry.addProperty("high_value", bucket.highValue)
+              entry.addProperty("low_value", normalizeDouble(bucket.lowValue))
+              entry.addProperty("high_value", normalizeDouble(bucket.highValue))
               entry.addProperty("count", bucket.count)
               entry.addProperty("ratio", bucket.count/totalCount)
               tmp.add(entry)
@@ -186,7 +187,9 @@ object ColumnProfiles {
               val histogramJson = new JsonArray()
               kllSketch.buckets.foreach{bucket =>
                 val histogramEntry = new JsonObject()
-                histogramEntry.addProperty("value", bucket.lowValue+"-"+bucket.highValue)
+                histogramEntry.addProperty("value", "%.2f".formatLocal(java.util.Locale.US,
+                  bucket.lowValue) + "-" + "%.2f".formatLocal(java.util.Locale.US, bucket
+                  .highValue))
                 histogramEntry.addProperty("count", bucket.count)
                 histogramEntry.addProperty("ratio", bucket.count/totalCount)
                 histogramJson.add(histogramEntry)
@@ -228,10 +231,22 @@ object ColumnProfiles {
 
     json.add("columns", columns)
 
-    val gson = new GsonBuilder()
+    val gson = new GsonBuilder().serializeNulls()
       // .setPrettyPrinting()
       .create()
 
     gson.toJson(json)
+  }
+
+  def normalizeDouble(numeric: Double): java.lang.Double = {
+    if (numeric.isNaN) {
+      null.asInstanceOf[java.lang.Double]
+    } else if (numeric.isNegInfinity) {
+      Double.MinValue
+    } else if (numeric.isPosInfinity) {
+      Double.MaxValue
+    } else {
+      numeric
+    }
   }
 }

@@ -17,7 +17,7 @@
 package com.amazon.deequ.KLL
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters}
+import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters, KLLSketch}
 import com.amazon.deequ.metrics.{BucketDistribution, BucketValue, Distribution, DistributionValue}
 import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles, NumericColumnProfile, StandardColumnProfile}
 import com.amazon.deequ.utils.FixtureSupport
@@ -75,7 +75,9 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val data = getDfWithNumericFractionalValues(session)
 
-        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")))
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1",
+          "att2")), kllParameters = Some(KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
+          .DEFAULT_SHRINKING_FACTOR, 20)), histogram = true)
           .profiles("att1")
 
         val expectedColumnProfile = NumericColumnProfile(
@@ -88,7 +90,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           DataTypeInstances.Fractional,
           false,
           Map.empty,
-          None,
+          actualColumnProfile.histogram,
           Some(BucketDistribution(List(BucketValue(1.0, 1.25, 1),
             BucketValue(1.25, 1.5, 0),
             BucketValue(1.5, 1.75, 0),
@@ -139,86 +141,83 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val data = getDfWithNumericFractionalValues(session)
 
-        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")))
-          .profiles("att1")
-
-        val profile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")))
+        val profile = ColumnProfiler.profileOptimized(data, Option(Seq("att1", "att2")),
+          kllParameters = Some(KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
+          .DEFAULT_SHRINKING_FACTOR, 20)), histogram = true)
         val profiles = profile.profiles.map{pro => pro._2}.toSeq
         val json_profile = ColumnProfiles.toJson(profiles)
         val correct_profile = "{\"columns\":[{\"column\":\"att1\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":6," +
-          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,72057594037927936," +
-          "0,0,0,0,0,0,0,0,0,0,0,0,0,0,4398046511104,0,0,13194139533312,0,0,64,0,0,0,0,0,1],\"mean\":3.5," +
-          "\"maximum\":6.0,\"minimum\":1.0,\"sum\":21.0,\"stdDev\":1.707825127659933," +
-          "\"correlations\":[{\"column\":\"att2\",\"correlation\":0.9263710192499128},{\"column\":\"att1\"," +
-          "\"correlation\":1.0}],\"histogram\":[{\"value\":\"1.0-1.25\",\"count\":1,\"ratio\":0.16666666666666666}," +
-          "{\"value\":\"1.25-1.5\",\"count\":0,\"ratio\":0.0},{\"value\":\"1.5-1.75\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"1.75-2.0\",\"count\":0,\"ratio\":0.0},{\"value\":\"2.0-2.25\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"2.25-2.5\",\"count\":0,\"ratio\":0.0},{\"value\":\"2.5-2.75\"," +
-          "\"count\":0,\"ratio\":0.0},{\"value\":\"2.75-3.0\",\"count\":0,\"ratio\":0.0},{\"value\":\"3.0-3.25\"," +
-          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"3.25-3.5\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"3.5-3.75\",\"count\":0,\"ratio\":0.0},{\"value\":\"3.75-4.0\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"4.0-4.25\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"4.25-4.5\",\"count\":0," +
-          "\"ratio\":0.0},{\"value\":\"4.5-4.75\",\"count\":0,\"ratio\":0.0},{\"value\":\"4.75-5.0\",\"count\":0," +
-          "\"ratio\":0.0},{\"value\":\"5.0-5.25\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"5.25-5.5\"," +
-          "\"count\":0,\"ratio\":0.0},{\"value\":\"5.5-5.75\",\"count\":0,\"ratio\":0.0},{\"value\":\"5.75-6.0\"," +
-          "\"count\":1,\"ratio\":0.16666666666666666}],\"kll\":{\"buckets\":[{\"low_value\":1.0,\"high_value\":1.25," +
-          "\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":1.25,\"high_value\":1.5,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":1.5,\"high_value\":1.75,\"count\":0,\"ratio\":0.0},{\"low_value\":1.75," +
-          "\"high_value\":2.0,\"count\":0,\"ratio\":0.0},{\"low_value\":2.0,\"high_value\":2.25,\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"low_value\":2.25,\"high_value\":2.5,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":2.5,\"high_value\":2.75,\"count\":0,\"ratio\":0.0},{\"low_value\":2.75,\"high_value\":3.0," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":3.0,\"high_value\":3.25,\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"low_value\":3.25,\"high_value\":3.5,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":3.5,\"high_value\":3.75,\"count\":0,\"ratio\":0.0},{\"low_value\":3.75,\"high_value\":4.0," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":4.0,\"high_value\":4.25,\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"low_value\":4.25,\"high_value\":4.5,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":4.5,\"high_value\":4.75,\"count\":0,\"ratio\":0.0},{\"low_value\":4.75,\"high_value\":5.0," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":5.0,\"high_value\":5.25,\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"low_value\":5.25,\"high_value\":5.5,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":5.5,\"high_value\":5.75,\"count\":0,\"ratio\":0.0},{\"low_value\":5.75,\"high_value\":6.0," +
-          "\"count\":1,\"ratio\":0.16666666666666666}],\"sketch\":{\"parameters\":{\"c\":0.64,\"k\":2048.0}," +
-          "\"data\":\"[[1.0,2.0,3.0,4.0,5.0,6.0]]\"}},\"approxPercentiles\":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0," +
-          "1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,3.0,3.0,3.0," +
-          "3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0," +
-          "4.0,4.0,4.0,4.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0,6.0,6.0,6.0," +
-          "6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0]},{\"column\":\"att2\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"approximateNumDistinctValues\":4," +
-          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,18014398509481984,0,0,0,0,0,0,0,0,0,0,0,0,0," +
-          "0,0,0,0,0,0,0,0,0,0,0,206158430208,0,0,4398046511104,0,0,0,0,0,0,0,0,0,0,0,0],\"mean\":3.0," +
-          "\"maximum\":7.0,\"minimum\":0.0,\"sum\":18.0,\"stdDev\":3.0550504633038935," +
-          "\"correlations\":[{\"column\":\"att2\",\"correlation\":1.0},{\"column\":\"att1\"," +
-          "\"correlation\":0.9263710192499128}],\"histogram\":[{\"value\":\"0.0-0.35\",\"count\":3,\"ratio\":0.5}," +
-          "{\"value\":\"0.35-0.7\",\"count\":0,\"ratio\":0.0},{\"value\":\"0.7-1.05\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"1.05-1.4\",\"count\":0,\"ratio\":0.0},{\"value\":\"1.4-1.75\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"1.75-2.1\",\"count\":0,\"ratio\":0.0},{\"value\":\"2.1-2.45\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"2.45-2.8\",\"count\":0,\"ratio\":0.0},{\"value\":\"2.8-3.15\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"3.15-3.5\",\"count\":0,\"ratio\":0.0},{\"value\":\"3.5-3.85\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"3.85-4.2\",\"count\":0,\"ratio\":0.0},{\"value\":\"4.2-4.55\",\"count\":0,\"ratio\":0.0}," +
-          "{\"value\":\"4.55-4.9\",\"count\":0,\"ratio\":0.0},{\"value\":\"4.9-5.25\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"5.25-5.6\",\"count\":0,\"ratio\":0.0},{\"value\":\"5.6-5.95\"," +
-          "\"count\":0,\"ratio\":0.0},{\"value\":\"5.95-6.3\",\"count\":1,\"ratio\":0.16666666666666666}," +
-          "{\"value\":\"6.3-6.65\",\"count\":0,\"ratio\":0.0},{\"value\":\"6.65-7.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666}],\"kll\":{\"buckets\":[{\"low_value\":0.0,\"high_value\":0.35,\"count\":3," +
-          "\"ratio\":0.5},{\"low_value\":0.35,\"high_value\":0.7,\"count\":0,\"ratio\":0.0},{\"low_value\":0.7," +
-          "\"high_value\":1.05,\"count\":0,\"ratio\":0.0},{\"low_value\":1.05,\"high_value\":1.4,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":1.4,\"high_value\":1.75,\"count\":0,\"ratio\":0.0},{\"low_value\":1.75," +
-          "\"high_value\":2.1,\"count\":0,\"ratio\":0.0},{\"low_value\":2.1,\"high_value\":2.45,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":2.45,\"high_value\":2.8,\"count\":0,\"ratio\":0.0},{\"low_value\":2.8," +
-          "\"high_value\":3.15,\"count\":0,\"ratio\":0.0},{\"low_value\":3.15,\"high_value\":3.5,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":3.5,\"high_value\":3.85,\"count\":0,\"ratio\":0.0},{\"low_value\":3.85," +
-          "\"high_value\":4.2,\"count\":0,\"ratio\":0.0},{\"low_value\":4.2,\"high_value\":4.55,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":4.55,\"high_value\":4.9,\"count\":0,\"ratio\":0.0},{\"low_value\":4.9," +
-          "\"high_value\":5.25,\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":5.25,\"high_value\":5.6," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":5.6,\"high_value\":5.95,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":5.95,\"high_value\":6.3,\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":6.3," +
-          "\"high_value\":6.65,\"count\":0,\"ratio\":0.0},{\"low_value\":6.65,\"high_value\":7.0,\"count\":1," +
-          "\"ratio\":0.16666666666666666}],\"sketch\":{\"parameters\":{\"c\":0.64,\"k\":2048.0},\"data\":\"[[0.0,0.0," +
-          "0.0,5.0,6.0,7.0]]\"}},\"approxPercentiles\":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0," +
-          "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0," +
-          "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0," +
-          "6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0," +
-          "7.0,7.0,7.0,7.0,7.0,7.0]}]}"
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
+          "\"approximateNumDistinctValues\":6,\"approximateNumDistinctValuesStates\":[0,0,0,0,0," +
+          "0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,72057594037927936,0,0,0,0,0,0,0,0,0,0,0,0,0,0," +
+          "4398046511104,0,0,13194139533312,0,0,64,0,0,0,0,0,1]," +
+          "\"histogram\":[{\"value\":\"6.0\",\"count\":1,\"ratio\":0.16666666666666666}," +
+          "{\"value\":\"3.0\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"2.0\"," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"4.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"1.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666}],\"mean\":3.5,\"maximum\":6.0,\"minimum\":1.0," +
+          "\"sum\":21.0,\"stdDev\":1.707825127659933,\"correlations\":[{\"column\":\"att2\"," +
+          "\"correlation\":0.9263710192499128},{\"column\":\"att1\",\"correlation\":1.0}]," +
+          "\"kll\":{\"buckets\":[{\"low_value\":1.0,\"high_value\":1.25,\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"low_value\":1.25,\"high_value\":1.5,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":1.5,\"high_value\":1.75,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":1.75,\"high_value\":2.0,\"count\":0,\"ratio\":0.0},{\"low_value\":2.0," +
+          "\"high_value\":2.25,\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":2.25," +
+          "\"high_value\":2.5,\"count\":0,\"ratio\":0.0},{\"low_value\":2.5,\"high_value\":2.75," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":2.75,\"high_value\":3.0,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":3.0,\"high_value\":3.25,\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"low_value\":3.25,\"high_value\":3.5,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":3.5,\"high_value\":3.75,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":3.75,\"high_value\":4.0,\"count\":0,\"ratio\":0.0},{\"low_value\":4.0," +
+          "\"high_value\":4.25,\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":4.25," +
+          "\"high_value\":4.5,\"count\":0,\"ratio\":0.0},{\"low_value\":4.5,\"high_value\":4.75," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":4.75,\"high_value\":5.0,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":5.0,\"high_value\":5.25,\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"low_value\":5.25,\"high_value\":5.5,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":5.5,\"high_value\":5.75,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":5.75,\"high_value\":6.0,\"count\":1,\"ratio\":0.16666666666666666}]," +
+          "\"sketch\":{\"parameters\":{\"c\":0.64,\"k\":2048.0},\"data\":\"[[1.0,2.0,3.0,4.0,5.0," +
+          "6.0]]\"}},\"approxPercentiles\":[1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0," +
+          "1.0,1.0,1.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,2.0,3.0," +
+          "3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,3.0,4.0,4.0,4.0,4.0,4.0,4.0," +
+          "4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0," +
+          "5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0," +
+          "6.0,6.0]},{\"column\":\"att2\",\"dataType\":\"Fractional\"," +
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
+          "\"approximateNumDistinctValues\":4,\"approximateNumDistinctValuesStates\":[0,0,0,0,0," +
+          "0,3,0,0,0,0,18014398509481984,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0," +
+          "206158430208,0,0,4398046511104,0,0,0,0,0,0,0,0,0,0,0,0]," +
+          "\"histogram\":[{\"value\":\"0.0\",\"count\":3,\"ratio\":0.5},{\"value\":\"6.0\"," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"7.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666}],\"mean\":3.0,\"maximum\":7.0,\"minimum\":0.0," +
+          "\"sum\":18.0,\"stdDev\":3.0550504633038935,\"correlations\":[{\"column\":\"att2\"," +
+          "\"correlation\":1.0},{\"column\":\"att1\",\"correlation\":0.9263710192499128}]," +
+          "\"kll\":{\"buckets\":[{\"low_value\":0.0,\"high_value\":0.35,\"count\":3," +
+          "\"ratio\":0.5},{\"low_value\":0.35,\"high_value\":0.7,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":0.7,\"high_value\":1.05,\"count\":0,\"ratio\":0.0},{\"low_value\":1.05," +
+          "\"high_value\":1.4,\"count\":0,\"ratio\":0.0},{\"low_value\":1.4,\"high_value\":1.75," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":1.75,\"high_value\":2.1,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":2.1,\"high_value\":2.45,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":2.45,\"high_value\":2.8,\"count\":0,\"ratio\":0.0},{\"low_value\":2.8," +
+          "\"high_value\":3.15,\"count\":0,\"ratio\":0.0},{\"low_value\":3.15,\"high_value\":3.5," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":3.5,\"high_value\":3.85,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":3.85,\"high_value\":4.2,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":4.2,\"high_value\":4.55,\"count\":0,\"ratio\":0.0},{\"low_value\":4.55," +
+          "\"high_value\":4.9,\"count\":0,\"ratio\":0.0},{\"low_value\":4.9,\"high_value\":5.25," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":5.25,\"high_value\":5.6," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":5.6,\"high_value\":5.95,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":5.95,\"high_value\":6.3,\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"low_value\":6.3,\"high_value\":6.65,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":6.65,\"high_value\":7.0,\"count\":1," +
+          "\"ratio\":0.16666666666666666}],\"sketch\":{\"parameters\":{\"c\":0.64,\"k\":2048.0}," +
+          "\"data\":\"[[0.0,0.0,0.0,5.0,6.0,7.0]]\"}},\"approxPercentiles\":[0.0,0.0,0.0,0.0,0.0," +
+          "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0," +
+          "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0," +
+          "0.0,0.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0," +
+          "6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,7.0,7.0,7.0,7.0,7.0,7.0," +
+          "7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0,7.0]}]}"
         assert(json_profile == correct_profile)
       }
 
@@ -228,7 +227,9 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
         val data = getDfWithNumericFractionalValues(session)
 
         val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1")),
-          exactUniqueness = true, exactUniquenessCols = Some(Seq("att1"))).profiles("att1")
+          exactUniqueness = true, exactUniquenessCols = Some(Seq("att1")), kllParameters = Some
+          (KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
+            .DEFAULT_SHRINKING_FACTOR, 20)), histogram = true).profiles("att1")
 
         val expectedColumnProfile = NumericColumnProfile(
           "att1",
@@ -240,7 +241,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           DataTypeInstances.Fractional,
           false,
           Map.empty,
-          None,
+          actualColumnProfile.histogram,
           Some(BucketDistribution(List(BucketValue(1.0, 1.25, 1),
             BucketValue(1.25, 1.5, 0),
             BucketValue(1.5, 1.75, 0),

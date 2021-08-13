@@ -33,53 +33,57 @@ class HLLProfileTest extends WordSpec with Matchers with SparkContextSpec
     "return correct HLL properties" in
       withSparkSession { session =>
 
-        val nRows = 100
-        val nVal = 100
+          val nRows = 100
+          val nVal = 100
 
-        import session.implicits._
-        import org.apache.spark.sql.functions
+          import session.implicits._
+          import org.apache.spark.sql.functions
 
-        var data = session.sparkContext.range(0,nRows).toDF().select(functions.col("value"))
-        data = data.withColumnRenamed("value","att1")
-        data = data.withColumn("att2",functions.round(functions.rand(0)*lit(nVal)).cast(LongType))
+          var data = session.sparkContext.range(0, nRows).toDF().select(functions.col("value"))
+          data = data.withColumnRenamed("value", "att1")
+          data = data.withColumn("att2", functions.round(functions.rand(0) * lit(nVal)).cast
+          (LongType))
 
-        println(data.schema)
-        data.show(10)
-        println("did not contain: "+data.filter("att2 >= 1000000").count())
+          println(data.schema)
+          data.show(10)
+          println("did not contain: " + data.filter("att2 >= 1000000").count())
 
-        val stateRepository = InMemoryStateProvider()
-        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1","att2")), stateRepository = stateRepository)
+          val stateRepository = InMemoryStateProvider()
+          val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("att1",
+              "att2")), stateRepository = stateRepository)
 
-        val profile1 = actualColumnProfile.profiles.get("att1")
-        val profile2 = actualColumnProfile.profiles.get("att2")
+          val profile1 = actualColumnProfile.profiles.get("att1")
+          val profile2 = actualColumnProfile.profiles.get("att2")
 
-        println("profile1.get.approximateNumDistinctValues: "+profile1.get.approximateNumDistinctValues)
-        println("profile2.get.approximateNumDistinctValues: "+profile2.get.approximateNumDistinctValues)
+          println("profile1.get.approximateNumDistinctValues: " + profile1.get
+            .approximateNumDistinctValues)
+          println("profile2.get.approximateNumDistinctValues: " + profile2.get
+            .approximateNumDistinctValues)
 
-        val state1 = stateRepository.load(ApproxCountDistinct("att1"))
-        val state2 = stateRepository.load(ApproxCountDistinct("att2"))
+          val state1 = stateRepository.load(ApproxCountDistinct("att1"))
+          val state2 = stateRepository.load(ApproxCountDistinct("att2"))
 
-        val words1 = state1.get.words
-        val words2 = state2.get.words
+          val words1 = state1.get.words
+          val words2 = state2.get.words
 
-        println("words1: "+words1.mkString(", "))
-        println("words2: "+words2.mkString(", "))
+          println("words1: " + words1.mkString(", "))
+          println("words2: " + words2.mkString(", "))
 
-        val count1 = DeequHyperLogLogPlusPlusUtils.count(words1)
-        val count2 = DeequHyperLogLogPlusPlusUtils.count(words2)
+          val count1 = DeequHyperLogLogPlusPlusUtils.count(words1)
+          val count2 = DeequHyperLogLogPlusPlusUtils.count(words2)
 
-        println("count1: "+count1)
-        println("count2: "+count2)
-        println("Size() is defined: "+stateRepository.load(Size()).isDefined)
+          println("count1: " + count1)
+          println("count2: " + count2)
+          println("Size() is defined: " + stateRepository.load(Size()).isDefined)
 
-        val wordsMerged = DeequHyperLogLogPlusPlusUtils.merge(words1,words2)
-        val countMerged = DeequHyperLogLogPlusPlusUtils.count(wordsMerged)
+          val wordsMerged = DeequHyperLogLogPlusPlusUtils.merge(words1, words2)
+          val countMerged = DeequHyperLogLogPlusPlusUtils.count(wordsMerged)
 
-        println("countMerged: "+countMerged)
+          println("countMerged: " + countMerged)
 
-        val profiles = actualColumnProfile.profiles.map{pro => pro._2}.toSeq
-        val json_profile = ColumnProfiles.toJson(profiles)
-        println(json_profile)
+          val profiles = actualColumnProfile.profiles.map { pro => pro._2 }.toSeq
+          val json_profile = ColumnProfiles.toJson(profiles)
+          println(json_profile)
       }
 
   }
