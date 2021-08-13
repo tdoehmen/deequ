@@ -17,7 +17,7 @@
 package com.amazon.deequ.profiles
 
 import com.amazon.deequ.repository._
-import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters}
+import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters, KLLSketch}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 /** A class to build a Constraint Suggestion run using a fluent API */
@@ -42,11 +42,9 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   protected var correlation = false
   protected var histogram = false
   protected var kllProfiling = false
-  protected var kllParameters: Option[KLLParameters] = Some(KLLParameters(2048,
-                                                                          0.64,
-                                                                          20))
+  protected var kllParameters: Option[KLLParameters] = None
   protected var predefinedTypes: Map[String, DataTypeInstances.Value] = Map.empty
-  protected var maxCorrelationCols = 100
+  protected var maxCorrelationCols: Option[Int] = None
   protected var exactUniqueness = false
   protected var exactUniquenessCols: Option[Seq[String]] = None
   protected var optimized = true
@@ -77,7 +75,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     correlation = constraintSuggestionRunBuilder.correlation
     maxCorrelationCols = constraintSuggestionRunBuilder.maxCorrelationCols
     histogram = constraintSuggestionRunBuilder.histogram
-    
+
     kllProfiling = constraintSuggestionRunBuilder.kllProfiling
     kllParameters = constraintSuggestionRunBuilder.kllParameters
     predefinedTypes = constraintSuggestionRunBuilder.predefinedTypes
@@ -135,7 +133,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
    */
   def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 100): this.type = {
     this.correlation = correlation
-    this.maxCorrelationCols = maxCorrelationCols
+    this.maxCorrelationCols = Some(maxCorrelationCols)
     this
   }
 
@@ -149,7 +147,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     this.histogram = histogram
     this.kllProfiling = histogram
     this.lowCardinalityHistogramThreshold = maxBuckets
-    this.kllParameters = Some(KLLParameters(2048,0.64,maxBuckets))
+    this.kllParameters = kllParameters
     this
   }
 

@@ -159,7 +159,7 @@ object ColumnProfiles {
             val kllSketchJson = new JsonObject()
 
             val tmp = new JsonArray()
-            var totalCount = kllSketch.buckets.foldLeft(0.0)(_+_.count)
+            var totalCount = kllSketch.buckets.foldLeft(0.0)(_ + _.count)
             if (totalCount == 0) totalCount = 1
 
             kllSketch.buckets.foreach{bucket =>
@@ -175,8 +175,7 @@ object ColumnProfiles {
               val histogramJson = new JsonArray()
               kllSketch.buckets.foreach{bucket =>
                 val histogramEntry = new JsonObject()
-                histogramEntry.addProperty("value", "%.2f".format(bucket.lowValue) + "-" + "%.2f"
-                  .format(bucket.highValue))
+                histogramEntry.addProperty("value", bucket.lowValue + "-" + bucket.highValue)
                 histogramEntry.addProperty("count", bucket.count)
                 histogramEntry.addProperty("ratio", bucket.count/totalCount)
                 histogramJson.add(histogramEntry)
