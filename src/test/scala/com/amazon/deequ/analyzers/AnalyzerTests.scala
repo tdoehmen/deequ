@@ -48,7 +48,7 @@ class AnalyzerTests extends AnyWordSpec with Matchers with SparkContextSpec with
     "compute correct metrics" in withSparkSession { sparkSession =>
       val dfMissing = getDfMissing(sparkSession)
 
-      assert(Completeness("someMissingColumn").preconditions.size == 2,
+      assert(Completeness("someMissingColumn").preconditions.size == 1,
         "should check column name availability")
       assert(Completeness("att1").calculate(dfMissing) == DoubleMetric(Entity.Column,
         "Completeness", "att1", Success(0.5)))

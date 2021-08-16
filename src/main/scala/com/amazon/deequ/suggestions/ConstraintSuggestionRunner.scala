@@ -171,6 +171,7 @@ class ConstraintSuggestionRunner {
 
     var columnProfilerRunner = ColumnProfilerRunner()
       .onData(trainingData)
+      .nonOptimized()
       .printStatusUpdates(printStatusUpdates)
       .withLowCardinalityHistogramThreshold(lowCardinalityHistogramThreshold)
 

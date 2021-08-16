@@ -132,8 +132,11 @@ class ConstraintRulesTest extends WordSpec with FixtureSupport with SparkContext
       val codeForConstraint = RetainCompletenessRule().candidate(fakeColumnProfile, 100)
         .codeForConstraint
 
-      val expectedCodeForConstraint = """.hasCompleteness("att1", _ >= 0.4,
-          | Some("It should be above 0.4!"))""".stripMargin.replaceAll("\n", "")
+        val expectedCodeForConstraint =
+          """.hasCompleteness("att1", _ >= 0.4,
+            | Some("It should be above 0.4!"))"""
+            .stripMargin.replaceAll("\n", "")
+            .stripMargin.replaceAll("\r", "")
 
       assert(expectedCodeForConstraint == codeForConstraint)
 
@@ -665,8 +668,8 @@ class ConstraintRulesTest extends WordSpec with FixtureSupport with SparkContext
       val codeForConstraint = FractionalCategoricalRangeRule().candidate(fakeColumnProfile, 100)
         .codeForConstraint
 
-      val expectedCodeForConstraint = ".isContainedIn(\"categoricalColumn\", Array(\"_b%%__\"," +
-        " \"'_[a_[]}!@'\"), _ >= 0.9, Some(\"It should be above 0.9!\"))"
+      val expectedCodeForConstraint = ".isContainedIn(\"categoricalColumn\", Array(\"_b%%__\", " +
+        "\"'_[a_[]}!@'\"), _ >= 0.9, Some(\"It should be above 0.9!\"))"
 
       assert(expectedCodeForConstraint == codeForConstraint)
 

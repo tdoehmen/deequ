@@ -168,6 +168,7 @@ class VerificationResultTest extends WordSpec with Matchers with SparkContextSpe
               |"constraint_message":"Value: 1.0 does not meet the constraint requirement!
               | Should be smaller than 0.8!"}]"""
               .stripMargin.replaceAll("\n", "")
+              .stripMargin.replaceAll("\r", "")
 
           assertSameResultsJson(checkResultsAsJson, expectedJson)
         }

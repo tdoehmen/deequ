@@ -95,7 +95,9 @@ case class FractionalCategoricalRangeRule(targetDataCoverageFraction: Double = 0
       description,
       this,
       s""".isContainedIn("${profile.column}", Array($categoriesCode),
-         | _ >= $targetCompliance, Some("$hint"))""".stripMargin.replaceAll("\n", "")
+         | _ >= $targetCompliance, Some("$hint"))"""
+        .stripMargin.replaceAll("\n", "")
+        .stripMargin.replaceAll("\r", "")
     )
   }
 
