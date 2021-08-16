@@ -43,6 +43,7 @@ private[examples] object DataProfilingExample extends App {
        any shuffles. */
     val result = ColumnProfilerRunner()
       .onData(rawData)
+      .nonOptimized()
       .run()
 
     /* We get a profile for each column which allows to inspect the completeness of the column,

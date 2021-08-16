@@ -56,6 +56,7 @@ case class RetainCompletenessRule() extends ConstraintRule[ColumnProfile] {
       s""".hasCompleteness("${profile.column}", _ >= $targetCompleteness,
          | Some("It should be above $targetCompleteness!"))"""
         .stripMargin.replaceAll("\n", "")
+        .stripMargin.replaceAll("\r", "")
     )
   }
 
