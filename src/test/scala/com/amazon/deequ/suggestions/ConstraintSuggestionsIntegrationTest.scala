@@ -106,16 +106,6 @@ class ConstraintSuggestionsIntegrationTest extends WordSpec with SparkContextSpe
         analyzer == Completeness("marketplace") && assertionFunc(1.0)
       }
 
-      // Categorical range for "marketplace"
-      /* commented out - currently failing
-      assertConstraintExistsIn(constraintSuggestionResult) { (analyzer, assertionFunc) =>
-
-        assertionFunc(1.0) &&
-          analyzer.isInstanceOf[Compliance] &&
-          analyzer.asInstanceOf[Compliance]
-            .instance.startsWith(s"'marketplace' has value range")
-      }*/
-
       // IS NOT NULL for "measurement"
       assertConstraintExistsIn(constraintSuggestionResult) { (analyzer, assertionFunc) =>
         analyzer == Completeness("measurement") && assertionFunc(1.0)
