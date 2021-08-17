@@ -43,24 +43,25 @@ class ColumnProfilerRunnerTest extends WordSpec with Matchers with SparkContextS
         ColumnProfilerRunner().onData(df)
           .useRepository(repository)
           .saveOrAppendResult(resultKey)
+          .nonOptimized()
           .run()
 
         val (separateResults: ColumnProfiles, jobNumberAllCalculations) = sparkMonitor
           .withMonitoringSession { stat =>
-            val results = ColumnProfilerRunner().onData(df).run()
+            val results = ColumnProfilerRunner().onData(df).nonOptimized().run()
 
             (results, stat.jobCount)
           }
 
         val (resultsReusingMetrics: ColumnProfiles, jobNumberReusing) = sparkMonitor
           .withMonitoringSession { stat =>
-            val results = ColumnProfilerRunner().onData(df).useRepository(repository)
+            val results = ColumnProfilerRunner().onData(df).nonOptimized().useRepository(repository)
               .reuseExistingResultsForKey(resultKey).run()
 
             (results, stat.jobCount)
           }
 
-        assert(jobNumberAllCalculations == 1)
+        assert(jobNumberAllCalculations == 10)
         assert(jobNumberReusing == 0)
         assertConstraintSuggestionResultsEquals(separateResults, resultsReusingMetrics)
       }

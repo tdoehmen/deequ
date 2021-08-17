@@ -107,7 +107,8 @@ class ConstraintSuggestionsIntegrationTest extends WordSpec with SparkContextSpe
       }
 
       // Categorical range for "marketplace"
-      /* commented out - currently failing
+      /*
+      commented out - currently failing
       assertConstraintExistsIn(constraintSuggestionResult) { (analyzer, assertionFunc) =>
 
         assertionFunc(1.0) &&
