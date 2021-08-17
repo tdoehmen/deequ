@@ -147,7 +147,8 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     this.histogram = histogram
     this.kllProfiling = histogram
     this.lowCardinalityHistogramThreshold = maxBuckets
-    this.kllParameters = kllParameters
+    this.kllParameters = Some(KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
+      .DEFAULT_SHRINKING_FACTOR, maxBuckets));
     this
   }
 
