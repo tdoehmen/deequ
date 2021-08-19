@@ -35,6 +35,7 @@ object DataTypeInstances extends Enumeration {
   val Integral: Value = Value(2)
   val Boolean: Value = Value(3)
   val String: Value = Value(4)
+  val Decimal: Value = Value(5)
 }
 
 case class DataTypeHistogram(

@@ -279,7 +279,8 @@ object ColumnProfiler {
       .map { field =>
         val knownType = field.dataType match {
           case ByteType | ShortType | IntegerType | LongType => Integral
-          case FloatType | DoubleType | DecimalType() => Fractional
+          case FloatType | DoubleType => Fractional
+          case DecimalType() => Decimal
           case BooleanType => Boolean
           case StringType | TimestampType | DateType | BinaryType => String
           case _ =>
@@ -292,7 +293,7 @@ object ColumnProfiler {
       .toMap
 
     val numericColumnNames = relevantColumns
-      .filter { name => Set(Integral, Fractional).contains(predefinedTypes(name)) }
+      .filter { name => Set(Integral, Fractional, Decimal).contains(predefinedTypes(name)) }
 
     // First pass
     if (printStatusUpdates) {
@@ -316,7 +317,7 @@ object ColumnProfiler {
             analyzers ++= Seq(Minimum(name), Maximum(name), Mean(name),
                StandardDeviation(name), Sum(name))
             // Add KLL analyzer.
-            if (histogram) {
+            if (histogram && predefinedTypes(name) != Decimal) {
               analyzers += KLLSketch(name, kllParameters)
             }
             if (correlation && (maxCorrelationCols.isEmpty || (numericColumnNames.length <=
@@ -362,7 +363,12 @@ object ColumnProfiler {
       firstPassResults,
       predefinedTypes)
 
-    val numericStatistics = extractNumericStatistics(firstPassResults, numericColumnNames)
+
+    val numericStatistics = if (correlation) {
+      extractNumericStatistics(firstPassResults, correlationCalculatedColumnNames)
+    } else {
+      extractNumericStatistics(firstPassResults)
+    }
 
     val metricStates = extractMetricStates(stateRepository, approxCountDistinctAnalyzers)
 
@@ -447,7 +453,8 @@ object ColumnProfiler {
       correlation: Boolean)
     : Seq[Analyzer[_, Metric[_]]] = {
       val numericColumnNames = relevantColumnNames
-        .filter { name => Set(Integral, Fractional).contains(genericStatistics.typeOf(name)) }
+        .filter { name => Set(Integral, Fractional).contains(genericStatistics.typeOf
+        (name)) }
       numericColumnNames
         .flatMap { name =>
           getNumericColAnalyzers(name, kllProfiling, kllParameters, correlation, numericColumnNames)
@@ -691,7 +698,7 @@ object ColumnProfiler {
 
 
   private[this] def extractNumericStatistics(results: AnalyzerContext,
-                                             numericColumnNames: Seq[String] = Seq[String]())
+                                             correlationCols: Seq[String] = Seq[String]())
   : NumericColumnStatistics = {
 
     val means = results.metricMap
@@ -770,7 +777,7 @@ object ColumnProfiler {
       .flatten
       .toMap
 
-    val correlationDiagonal = numericColumnNames.map { name =>
+    val correlationDiagonal = correlationCols.map { name =>
       Some((name -> Map(name -> 1.0)))
     }
     val correlationLower = results.metricMap
@@ -840,7 +847,8 @@ object ColumnProfiler {
     genericStatistics.approximateNumDistincts
       .filter { case (column, _) =>
         originalStringNumericOrBooleanColumns.contains(column) &&
-          Set(String, Boolean, Integral, Fractional).contains(genericStatistics.typeOf(column))
+          Set(String, Boolean, Integral, Fractional).contains(genericStatistics.typeOf
+          (column))
       }
       .filter { case (_, count) => count <= lowCardinalityHistogramThreshold }
       .map { case (column, _) => column }
@@ -973,7 +981,7 @@ object ColumnProfiler {
 
         val profile = genericStats.typeOf(name) match {
 
-          case Integral | Fractional =>
+          case Integral | Fractional | Decimal =>
             NumericColumnProfile(
               name,
               completeness,

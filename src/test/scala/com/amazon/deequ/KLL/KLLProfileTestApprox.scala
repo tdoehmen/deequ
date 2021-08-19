@@ -318,6 +318,90 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           actualColumnProfile.asInstanceOf[StandardColumnProfile])
       }
 
+    "return correct StandardColumnProfile plus histogram for Decimal column" in
+      withSparkSession { session =>
+
+        val schema =
+          StructType(Seq(StructField(name = "num", dataType = DecimalType.SYSTEM_DEFAULT),
+            StructField(name = "num2", dataType = DecimalType.SYSTEM_DEFAULT)))
+
+        val rows = session.sparkContext.parallelize(Seq(
+          Row(BigDecimal(1), BigDecimal(4)),
+          Row(BigDecimal(2), BigDecimal(3)),
+          Row(BigDecimal(3), BigDecimal(2)),
+          Row(BigDecimal(4), BigDecimal(1))))
+
+        val data = session.createDataFrame(rows, schema)
+
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("num", "num2")),
+          histogram = true).profiles("num").asInstanceOf[NumericColumnProfile]
+
+        val expectedColumnProfile = NumericColumnProfile(
+          "num",
+          1.0,
+          None,
+          None,
+          None,
+          4,
+          DataTypeInstances.Decimal,
+          false,
+          Map.empty,
+          None,
+          None,
+          Some(2.5),
+          Some(4),
+          Some(1),
+          Some(10),
+          Some(1.118033988749895),
+          None,
+          Some(Map("num2" -> -1.0, "num" -> 1.0))
+        )
+
+        assertProfilesEqual(expectedColumnProfile, actualColumnProfile)
+      }
+
+    "return correct StandardColumnProfile for Decimal column and correlations off" in
+      withSparkSession { session =>
+
+        val schema =
+          StructType(Seq(StructField(name = "num", dataType = DecimalType.SYSTEM_DEFAULT),
+            StructField(name = "num2", dataType = DecimalType.SYSTEM_DEFAULT)))
+
+        val rows = session.sparkContext.parallelize(Seq(
+          Row(BigDecimal(1), BigDecimal(4)),
+          Row(BigDecimal(2), BigDecimal(3)),
+          Row(BigDecimal(3), BigDecimal(2)),
+          Row(BigDecimal(4), BigDecimal(1))))
+
+        val data = session.createDataFrame(rows, schema)
+
+        val actualColumnProfile = ColumnProfiler.profileOptimized(data, Option(Seq("num", "num2")),
+          histogram = true, correlation = false).profiles("num").asInstanceOf[NumericColumnProfile]
+
+        val expectedColumnProfile = NumericColumnProfile(
+          "num",
+          1.0,
+          None,
+          None,
+          None,
+          4,
+          DataTypeInstances.Decimal,
+          false,
+          Map.empty,
+          None,
+          None,
+          Some(2.5),
+          Some(4),
+          Some(1),
+          Some(10),
+          Some(1.118033988749895),
+          None,
+          None
+        )
+
+        assertProfilesEqual(expectedColumnProfile, actualColumnProfile)
+      }
+
     "return correct NumericColumnProfiles With KLL for numeric columns with correct DataType" in
       withSparkSession { session =>
 
