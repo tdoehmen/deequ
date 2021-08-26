@@ -24,9 +24,9 @@ import com.google.gson.{Gson, GsonBuilder, JsonArray, JsonObject, JsonPrimitive}
 abstract class ColumnProfile {
   def column: String
   def completeness: Double
-  def distinctness: Double
-  def entropy: Double
-  def uniqueness: Double
+  def distinctness: Option[Double]
+  def entropy: Option[Double]
+  def uniqueness: Option[Double]
   def approximateNumDistinctValues: Long
   def dataType: DataTypeInstances.Value
   def isDataTypeInferred: Boolean
@@ -37,9 +37,9 @@ abstract class ColumnProfile {
 case class StandardColumnProfile(
     column: String,
     completeness: Double,
-    distinctness: Double,
-    entropy: Double,
-    uniqueness: Double,
+    distinctness: Option[Double],
+    entropy: Option[Double],
+    uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
@@ -50,9 +50,9 @@ case class StandardColumnProfile(
 case class NumericColumnProfile(
     column: String,
     completeness: Double,
-    distinctness: Double,
-    entropy: Double,
-    uniqueness: Double,
+    distinctness: Option[Double],
+    entropy: Option[Double],
+    uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
@@ -96,9 +96,16 @@ object ColumnProfiles {
       }
 
       columnProfileJson.addProperty("completeness", normalizeDouble(profile.completeness))
-      columnProfileJson.addProperty("distinctness", normalizeDouble(profile.distinctness))
-      columnProfileJson.addProperty("entropy", normalizeDouble(profile.entropy))
-      columnProfileJson.addProperty("uniqueness", normalizeDouble(profile.uniqueness))
+      if (profile.distinctness.isDefined) {
+        columnProfileJson.addProperty("distinctness", normalizeDouble(profile.distinctness.get))
+      }
+      if (profile.entropy.isDefined) {
+        columnProfileJson.addProperty("entropy", normalizeDouble(profile.entropy.get))
+      }
+      if (profile.uniqueness.isDefined) {
+        columnProfileJson.addProperty("uniqueness", normalizeDouble(profile.uniqueness.get))
+      }
+
       columnProfileJson.addProperty("approximateNumDistinctValues",
         profile.approximateNumDistinctValues)
 
@@ -153,12 +160,31 @@ object ColumnProfiles {
             val kllSketchJson = new JsonObject()
 
             val tmp = new JsonArray()
+            var totalCount = kllSketch.buckets.foldLeft(0.0)(_ + _.count)
+            if (totalCount == 0) totalCount = 1
+
             kllSketch.buckets.foreach{bucket =>
               val entry = new JsonObject()
               entry.addProperty("low_value", normalizeDouble(bucket.lowValue))
               entry.addProperty("high_value", normalizeDouble(bucket.highValue))
               entry.addProperty("count", bucket.count)
+              entry.addProperty("ratio", bucket.count/totalCount)
               tmp.add(entry)
+            }
+
+            if (profile.histogram.isEmpty) {
+              val histogramJson = new JsonArray()
+              kllSketch.buckets.foreach{bucket =>
+                val histogramEntry = new JsonObject()
+                histogramEntry.addProperty("value", "%.2f".formatLocal(java.util.Locale.US,
+                  bucket.lowValue) + "-" + "%.2f".formatLocal(java.util.Locale.US, bucket
+                  .highValue))
+                histogramEntry.addProperty("count", bucket.count)
+                histogramEntry.addProperty("ratio", bucket.count/totalCount)
+                histogramJson.add(histogramEntry)
+              }
+
+              columnProfileJson.add("histogram", histogramJson)
             }
 
             kllSketchJson.add("buckets", tmp)

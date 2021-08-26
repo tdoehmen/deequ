@@ -17,7 +17,7 @@
 package com.amazon.deequ.profiles
 
 import com.amazon.deequ.repository._
-import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters}
+import com.amazon.deequ.analyzers.{DataTypeInstances, KLLParameters, KLLSketch}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 /** A class to build a Constraint Suggestion run using a fluent API */
@@ -39,11 +39,15 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   protected var saveColumnProfilesJsonPath: Option[String] = None
   protected var saveConstraintSuggestionsJsonPath: Option[String] = None
   protected var saveEvaluationResultsJsonPath: Option[String] = None
-  protected var correlation = true
-  protected var histogram = true
+  protected var correlation = false
+  protected var histogram = false
   protected var kllProfiling = false
   protected var kllParameters: Option[KLLParameters] = None
   protected var predefinedTypes: Map[String, DataTypeInstances.Value] = Map.empty
+  protected var maxCorrelationCols: Option[Int] = None
+  protected var exactUniqueness = false
+  protected var exactUniquenessCols: Option[Seq[String]] = None
+  protected var optimized = true
 
   protected def this(constraintSuggestionRunBuilder: ColumnProfilerRunBuilder) {
 
@@ -66,9 +70,18 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
     saveConstraintSuggestionsJsonPath = constraintSuggestionRunBuilder
       .saveConstraintSuggestionsJsonPath
     saveEvaluationResultsJsonPath = constraintSuggestionRunBuilder.saveEvaluationResultsJsonPath
+
+    restrictToColumns = constraintSuggestionRunBuilder.restrictToColumns
+    correlation = constraintSuggestionRunBuilder.correlation
+    maxCorrelationCols = constraintSuggestionRunBuilder.maxCorrelationCols
+    histogram = constraintSuggestionRunBuilder.histogram
+
     kllProfiling = constraintSuggestionRunBuilder.kllProfiling
     kllParameters = constraintSuggestionRunBuilder.kllParameters
     predefinedTypes = constraintSuggestionRunBuilder.predefinedTypes
+    exactUniqueness = constraintSuggestionRunBuilder.exactUniqueness
+    exactUniquenessCols = constraintSuggestionRunBuilder.exactUniquenessCols
+    optimized = constraintSuggestionRunBuilder.optimized
   }
 
   /**
@@ -93,7 +106,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
     * Set the thresholds of values until it is considered to expensive to
-    * calculate the histograms
+    * calculate the histograms (for backwards compatability)
     *
     * @param lowCardinalityHistogramThreshold The threshold
     */
@@ -113,23 +126,64 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
   }
 
   /**
-   * Enable correlation profiling on Numerical columns, enabled by default.
+   * Enable correlation profiling on Numerical columns, disabled by default.
+   *
+   * @param correlation Enable oder disable correlation profiling
+   * @param maxCorrelationCols The maximum number of columns to calculate correlations on
    */
-  def withCorrelation(correlation: Boolean): this.type = {
+  def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 100): this.type = {
     this.correlation = correlation
+    this.maxCorrelationCols = Some(maxCorrelationCols)
     this
   }
 
   /**
-   * Enable histogram profiling on Numerical columns, enabled by default.
+   * Enable histogram profiling on Numerical and Categorial columns, disabled by default.
+   *
+   * @param histogram Enable oder disable histogram profiling
+   * @param maxBuckets The maximum number of distinct values to calculate the histogram for
    */
-  def withHistogram(histogram: Boolean): this.type = {
+  def withHistogram(histogram: Boolean, maxBuckets: Int = 20): this.type = {
     this.histogram = histogram
+    this.kllProfiling = histogram
+    this.lowCardinalityHistogramThreshold = maxBuckets
+    this.kllParameters = Some(KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
+      .DEFAULT_SHRINKING_FACTOR, maxBuckets));
+    this
+  }
+
+  /**
+   * Enables exact Uniqueness, Entropy and Distinctness for all columns
+   *
+   * @param exactUniqueness Enable oder disable uniqueness, entropy and distinctness profiling
+   */
+  def withExactUniqueness(exactUniqueness: Boolean): this.type = {
+    this.exactUniqueness = exactUniqueness
+    this
+  }
+
+  /**
+   * Enables exact Uniqueness, Entropy and Distinctness for specified columns
+   *
+   * @param exactUniquenessColumns List of columns that should be selected for uniqueness profiling
+   */
+  def restrictExactUniquenessColumns(exactUniquenessColumns: Seq[String]): this.type = {
+    this.exactUniquenessCols = Some(exactUniquenessColumns)
+    this
+  }
+
+  /**
+   * Use unoptimized version of profiler (optimizations on by default)
+   *
+   */
+  def nonOptimized(): this.type = {
+    this.optimized = false
     this
   }
 
   /**
    * Enable KLL Sketches profiling on Numerical columns, disabled by default.
+   * (for backwards compatability)
    */
   def withKLLProfiling(): this.type = {
     this.kllProfiling = true
@@ -138,6 +192,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Set KLL parameters.
+   * (for backwards compatability)
    *
    * @param kllParameters kllParameters(sketchSize, shrinkingFactor, numberOfBuckets)
    */
@@ -148,6 +203,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
 
   /**
    * Set predefined data types for each column (e.g. baseline)
+   * (for backwards compatability)
    *
    * @param dataTypes dataType map for baseline columns
    */
@@ -202,7 +258,11 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
       histogram,
       kllProfiling,
       kllParameters,
-      predefinedTypes
+      predefinedTypes,
+      optimized,
+      maxCorrelationCols,
+      exactUniqueness,
+      exactUniquenessCols
     )
   }
 }

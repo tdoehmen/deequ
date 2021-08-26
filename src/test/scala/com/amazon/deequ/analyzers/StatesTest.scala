@@ -36,17 +36,6 @@ class StatesTest extends AnyWordSpec with Matchers with SparkContextSpec with Fi
 
       val stateAB = stateA.sum(stateB)
 
-      println(stateA.frequencies.schema)
-      stateA.frequencies.collect().foreach { println }
-      println()
-
-      println(stateB.frequencies.schema)
-      stateB.frequencies.collect().foreach { println }
-      println()
-
-      println(stateAB.frequencies.schema)
-      stateAB.frequencies.collect().foreach { println }
-
       val mergedFrequencies = stateAB.frequencies.collect()
         .map { row => row.getString(0) -> row.getLong(1) }
         .toMap

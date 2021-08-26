@@ -33,9 +33,7 @@ case class Record(
     measurement: Double,
     propertyA: String,
     measurement2: String,
-    measurement3: String,
-    allNullColumn: String,
-    allNullColumn2: java.lang.Double
+    measurement3: String
 )
 
 class ConstraintSuggestionsIntegrationTest extends WordSpec with SparkContextSpec {
@@ -69,7 +67,7 @@ class ConstraintSuggestionsIntegrationTest extends WordSpec with SparkContextSpe
             case _ => null
           }
 
-          Record(id, marketplace, measurement, propertyA, measurement2, measurement3, null, null)
+          Record(id, marketplace, measurement, propertyA, measurement2, measurement3)
         }
 
       val data = session.createDataFrame(records)
@@ -106,15 +104,6 @@ class ConstraintSuggestionsIntegrationTest extends WordSpec with SparkContextSpe
       // IS NOT NULL for "marketplace"
       assertConstraintExistsIn(constraintSuggestionResult) { (analyzer, assertionFunc) =>
         analyzer == Completeness("marketplace") && assertionFunc(1.0)
-      }
-
-      // Categorical range for "marketplace"
-      assertConstraintExistsIn(constraintSuggestionResult) { (analyzer, assertionFunc) =>
-
-        assertionFunc(1.0) &&
-          analyzer.isInstanceOf[Compliance] &&
-          analyzer.asInstanceOf[Compliance]
-            .instance.startsWith(s"'marketplace' has value range")
       }
 
       // IS NOT NULL for "measurement"
