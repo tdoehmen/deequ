@@ -26,7 +26,7 @@ import org.apache.spark.sql.expressions.{MutableAggregationBuffer, UserDefinedAg
 import org.apache.spark.sql.types._
 
 
-private [sql] class StatefulKLLSketch(
+protected [sql] class StatefulKLLSketch(
     sketchSize: Int,
     shrinkingFactor: Double)
   extends UserDefinedAggregateFunction{

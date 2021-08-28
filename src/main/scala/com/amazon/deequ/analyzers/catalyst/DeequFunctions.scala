@@ -88,6 +88,15 @@ object DeequFunctions {
     val statefulKLL = new StatefulKLLSketch(sketchSize, shrinkingFactor)
     statefulKLL(column)
   }
+
+  def stateful_kll_pmf(
+                        column: Column,
+                        bins: Int,
+                        start: Option[Double] = None,
+                        end: Option[Double] = None): Column = {
+    val statefulPMF = new StatefulApproxPMF(bins, start, end)
+    statefulPMF(column)
+  }
 }
 
 
