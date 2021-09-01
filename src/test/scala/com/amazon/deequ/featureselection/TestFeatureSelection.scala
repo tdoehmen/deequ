@@ -17,14 +17,14 @@
 package com.amazon.deequ.featureselection
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.MutualInformation
+import com.amazon.deequ.analyzers.{KLLState, MutualInformation}
+import com.amazon.deequ.analyzers.catalyst.KLLSketchSerializer
 import com.amazon.deequ.utils.FixtureSupport
-import org.apache.spark.sql.DeequFunctions.stateful_kll_pmf
+import org.apache.spark.sql.DeequFunctions.{stateful_kll_2, stateful_kll_agg}
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.functions.{col, sum, when}
+import org.apache.spark.sql.functions.{col, corr, lit, sum, when}
+import org.apache.spark.sql.types.IntegerType
 import org.scalatest.{Matchers, WordSpec}
-
-import scala.math.log
 
 class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
@@ -33,11 +33,27 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
     "calculate Mutual Information based on KLL sketches" in
       withSparkSession { sparkSession =>
-        val df = getDfWithNumericFractionalValuesForPMF(sparkSession)
 
-        println(MutualInformation("att1", "target").calculate(df).value)
-        println(MutualInformation("target", "att1").calculate(df).value)
+        import org.apache.spark.sql.functions
+        import sparkSession.implicits._
 
+        // create test dataset
+        val nRows = 10000
+        val nVal = 10
+        val nTargetBins = 100
+
+        var df = sparkSession.sparkContext.range(0, nRows).toDF().select(col("value"))
+        df = df.withColumn("target",
+            functions.round(functions.rand(10) * lit(nTargetBins)).cast(IntegerType))
+        df = df.drop("value")
+        (1 to nVal).foreach(i => df = df.withColumn(f"att$i",
+            functions.rand(i) * lit(10)))
+
+        df.cache()
+        df.count()
+
+        // compute exac
+        /*
         val resultX = df
           .agg(stateful_kll_pmf(col("att1"),
             bins = 30).alias("pmf"))
@@ -50,27 +66,175 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         val distX = rowX.getAs[Seq[Double]]("dist")
         val minX = rowX.getAs[Double]("min")
         val maxX = rowX.getAs[Double]("max")
+         */
+        val t0 = System.nanoTime
 
-        val resultXY = df
-          .groupBy("target")
-          .agg(stateful_kll_pmf(col("att1"),
-            bins = 30,
-            start = Some(minX),
-            end = Some(maxX)).alias("att1_pmf"),
+        // compute KLLs per target bucket (resultKllGrouped)
+        val klls2 = (1 to nVal).map(i => stateful_kll_2(col(f"att$i"))
+          .alias(f"kll_att$i"))
+          .toArray
+        var resultKllGrouped2 = df
+          .agg(
             sum(when(col("target").isNotNull, 1)
-              .otherwise(0)).alias("count_y"))
-          .withColumn("percent_y", col("count_y") /  sum("count_y").over())
-          .select("target", "percent_y", "att1_pmf")
+              .otherwise(0)).alias("count_y"), klls2: _*)
 
-        resultXY.cache()
-        resultXY.show()
+        resultKllGrouped2.cache()
+        resultKllGrouped2.count()
+        val duration0 = (System.nanoTime - t0) / 1e9d
+        println(f"kll x $duration0")
 
-        import sparkSession.implicits._
+        val t1 = System.nanoTime
 
+        // compute KLLs per target bucket (resultKllGrouped)
+        val klls = (1 to nVal).map(i => stateful_kll_2(col(f"att$i"))
+          .alias(f"kll_att$i"))
+          .toArray
+        var resultKllGrouped = df
+          .groupBy("target")
+          .agg(
+            sum(when(col("target").isNotNull, 1)
+              .otherwise(0)).alias("count_y"), klls: _*)
+
+        resultKllGrouped.cache()
+        resultKllGrouped.count()
+        val duration = (System.nanoTime - t1) / 1e9d
+        println(f"kll xy $duration")
+
+        val t2 = System.nanoTime
+
+        // aggregate KLLs across all buckets (resultKllAggregated)
+        /*val kllAggs = (1 to nVal).map(i => stateful_kll_agg(Seq(
+            col(f"kll_att$i").getField("sketch"),
+            col(f"kll_att$i").getField("min"),
+            col(f"kll_att$i").getField("max"),
+            col(f"kll_att$i").getField("count")))
+          .alias(f"pmf_agg_att$i")).toArray*/
+        val kllAggs = (1 to nVal).map(i => stateful_kll_agg(col(f"kll_att$i"))
+          .alias(f"agg_att$i")).toArray
+        val resultKllAggregated = resultKllGrouped.agg(sum(col("count_y")).alias("total_y"),
+            kllAggs: _*).first()
+
+        // add target percentage to groped klls table
+        resultKllGrouped = resultKllGrouped.withColumn("percent_y", col("count_y") /
+            resultKllAggregated.getAs[Double]("total_y"))
+
+
+        resultKllGrouped.cache()
+        resultKllGrouped.count()
+        val duration2 = (System.nanoTime - t2) / 1e9d
+        println(f"kll x $duration2")
+
+        val t2b = System.nanoTime
+
+        // compute MI for all buckets (resultXYPMF)
+        import org.apache.spark.sql.functions.udf
+        def kllToKLDivergence(buckets: Int = 100, min: Option[Double] = None, max: Option[Double] =
+        None, count: Option[Long] = None, pmfX: Array[Double])
+        = udf(
+          (kll: Array[Byte]) => {
+            val state = KLLState.fromBytes(kll)
+            val mn = min.getOrElse(state.globalMin)
+            val mx = max.getOrElse(state.globalMax)
+            val cnt = count.getOrElse(state.count)
+            val pmfXY = state.qSketch.getPMF(buckets, mn, mx, cnt)
+            val klDivergence = pmfXY.zipWithIndex.map {
+              case (pX, i) => {
+                if (pmfX(i) == 0 || pX.toDouble == 0) {
+                  0
+                } else {
+                  pX * Math.log(pmfX(i) / pX.toDouble)
+                }
+              }
+            }.sum * (-1)
+            klDivergence
+          })
+
+        (1 to nVal).foreach((i) => {
+            val kllX = KLLState.fromBytes(resultKllAggregated.getAs[Array[Byte]](f"agg_att$i"))
+            val minX = kllX.globalMin
+            val maxX = kllX.globalMax
+            val countX = kllX.count
+            val pmfX = kllX.qSketch.getPMF(100, minX, maxX, countX)
+            resultKllGrouped = resultKllGrouped.withColumn(f"pmf_agg_att$i", kllToKLDivergence
+            (min = Some(minX), max = Some(maxX), pmfX = pmfX)(col(f"kll_att$i")))
+          })
+
+        resultKllGrouped.cache()
+
+        // aggregate KLDivergence and sum/weight by bucket percentage to get mutual information
+        val miAggs = (1 to nVal).map(i => sum(col(f"pmf_agg_att$i")*col("percent_y")).alias
+        (f"mi_att$i")).toArray
+        val result = resultKllGrouped.agg(functions.count(col("count_y")).alias("target_buckets"),
+          miAggs: _*)
+          .first()
+
+        println(result.getAs[Double]("mi_att1"))
+
+        val duration2b = (System.nanoTime - t2b) / 1e9d
+        println(f"mi on klls x $duration2b")
+        val totalDuration = duration+duration2+duration2b
+        println(f"mi on klls total $totalDuration")
+
+        val t3 = System.nanoTime
+
+        // compute KLLs per target bucket (resultKllGrouped)
+        val corrs = (1 to nVal).map(i => corr(col(f"att$i"),col(f"att$i"))
+            .alias(f"kll_att$i"))
+            .toArray
+        var resultCorr = df
+            .groupBy("target")
+            .agg(
+                sum(when(col("target").isNotNull, 1)
+                  .otherwise(0)).alias("count_y"), corrs: _*)
+
+        resultCorr.cache()
+        resultCorr.count()
+        val duration3 = (System.nanoTime - t3) / 1e9d
+        println(f"correlations x $duration3")
+
+        val t4 = System.nanoTime
+
+        // compute KLLs per target bucket (resultKllGrouped)
+        val miValues = (1 to nVal).map(i => MutualInformation(f"att$i", "target").calculate(df)
+          .value)
+        println(miValues(0))
+
+        val duration4 = (System.nanoTime - t4) / 1e9d
+        println(f"mi deequ x $duration4")
+
+
+          // Define a UDF that wraps the upper Scala function defined above
+        // You could also define the function in place, i.e. inside udf
+        // but separating Scala functions from Spark SQL's UDFs allows for easier testing
+
+        /*
+        val (sketchXBin, minX, maxX, countX) = resultXY.map( row => {
+          val X = row.getAs[Row]("att_pmf1")
+          val sketch = X.getAs[Array[Byte]]("data")
+          val min = X.getAs[Double]("minimum")
+          val max = X.getAs[Double]("maximum")
+          val count = X.getAs[Long]("count")
+          (sketch, min, max, count)
+        }: (Array[Byte], Double, Double, Long)).reduce((a, b) => {
+          (KLLSketchSerializer.serializer.serialize(KLLSketchSerializer.serializer.deserialize(a._1)
+            .merge(KLLSketchSerializer.serializer
+            .deserialize(b._1))),
+            Math.min(a._2, b._2),
+            Math.max(a._3, b._3),
+            a._4 + b._4
+          )
+        })
+        val sketchX = KLLSketchSerializer.serializer.deserialize(sketchXBin)
+        val distX = sketchX.getPMF(numBuckets, minX, maxX, countX)
+
+        */
+        /*
         val approxMI = resultXY.map( row => {
           val percentY = row.getAs[Double]("percent_y")
-          val att1 = row.getAs[Row]("att1_pmf")
-          val distXY = att1.getAs[Seq[Double]]("dist")
+          val X = row.getAs[Row]("att_pmf1")
+          val sketchXY = KLLSketchSerializer.serializer.deserialize(X.getAs[Array[Byte]]("sketch"))
+          val countXY = X.getAs[Long]("count")
+          val distXY = sketchXY.getPMF(numBuckets, minX, maxX, countXY)
           val klDivergence = distXY.zipWithIndex.map {
             case (pX, i) => {
               if (distX(i) == 0 || pX.toDouble == 0) {
@@ -84,7 +248,22 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         }: Double).reduce(_ + _)
 
         println(approxMI)
+        */
+        // feature selection without/before transformations...
 
+        // differentiate between numeric/categorial target
+        // categorial target -> regular
+        // categorial target > 500 distinct values -> regular
+        // numerical target -> bucketing
+
+        // differentiate between numeric/categorial feature
+        // categorial features -> exact histogram
+        // categorial feature > 500 distinct values -> exact histograms (exclude?)
+        // numeric feature -> kll histogram
+        // timestamp feature -> numeric
+        // decimal feature -> numeric
+        // date feature -> numeric
+        // string -> exact histogram (adapted kl-diversion with lookup)
 
         /*
         def getDistribution()
