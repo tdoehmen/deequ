@@ -18,11 +18,9 @@ package com.amazon.deequ.featureselection
 
 import com.amazon.deequ.SparkContextSpec
 import com.amazon.deequ.analyzers.{KLLState, MutualInformation}
-import com.amazon.deequ.analyzers.catalyst.KLLSketchSerializer
 import com.amazon.deequ.utils.FixtureSupport
 import org.apache.spark.sql.DeequFunctions.{stateful_kll_2, stateful_kll_agg}
-import org.apache.spark.sql.Row
-import org.apache.spark.sql.functions.{col, corr, lit, sum, when}
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.IntegerType
 import org.scalatest.{Matchers, WordSpec}
 
@@ -35,23 +33,19 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
       withSparkSession { sparkSession =>
 
         import org.apache.spark.sql.functions
-        import sparkSession.implicits._
 
         // create test dataset
         val nRows = 10000
-        val nVal = 10
+        val nVal = 1000
         val nTargetBins = 100
 
-        var df = sparkSession.sparkContext.range(0, nRows).toDF().select(col("value"))
+        var df = sparkSession.read.format("parquet")
+          .load(f"test-data/features_$nVal.parquet")
         df = df.withColumn("target",
             functions.round(functions.rand(10) * lit(nTargetBins)).cast(IntegerType))
-        df = df.drop("value")
-        (1 to nVal).foreach(i => df = df.withColumn(f"att$i",
-            functions.rand(i) * lit(10)))
 
         df.cache()
         df.count()
-
         // compute exac
         /*
         val resultX = df
@@ -67,6 +61,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         val minX = rowX.getAs[Double]("min")
         val maxX = rowX.getAs[Double]("max")
          */
+
         val t0 = System.nanoTime
 
         // compute KLLs per target bucket (resultKllGrouped)
@@ -149,24 +144,21 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             klDivergence
           })
 
-        (1 to nVal).foreach((i) => {
+        val selectsKLDivergence = (1 to nVal).map((i) => {
             val kllX = KLLState.fromBytes(resultKllAggregated.getAs[Array[Byte]](f"agg_att$i"))
             val minX = kllX.globalMin
             val maxX = kllX.globalMax
             val countX = kllX.count
             val pmfX = kllX.qSketch.getPMF(100, minX, maxX, countX)
-            resultKllGrouped = resultKllGrouped.withColumn(f"pmf_agg_att$i", kllToKLDivergence
-            (min = Some(minX), max = Some(maxX), pmfX = pmfX)(col(f"kll_att$i")))
-          })
-
-        resultKllGrouped.cache()
+            kllToKLDivergence(min = Some(minX), max = Some(maxX), pmfX = pmfX)(col(f"kll_att$i"))
+              .as(f"pmf_agg_att$i")
+          }) :+ col("count_y") :+ col("percent_y")
 
         // aggregate KLDivergence and sum/weight by bucket percentage to get mutual information
         val miAggs = (1 to nVal).map(i => sum(col(f"pmf_agg_att$i")*col("percent_y")).alias
         (f"mi_att$i")).toArray
-        val result = resultKllGrouped.agg(functions.count(col("count_y")).alias("target_buckets"),
-          miAggs: _*)
-          .first()
+        val result = resultKllGrouped.select(selectsKLDivergence: _*).agg(functions.count(col
+        ("count_y")).alias("target_buckets"), miAggs: _*).first()
 
         println(result.getAs[Double]("mi_att1"))
 
@@ -177,7 +169,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val t3 = System.nanoTime
 
-        // compute KLLs per target bucket (resultKllGrouped)
+        // compute correlations per target bucket (resultKllGrouped)
         val corrs = (1 to nVal).map(i => corr(col(f"att$i"),col(f"att$i"))
             .alias(f"kll_att$i"))
             .toArray
