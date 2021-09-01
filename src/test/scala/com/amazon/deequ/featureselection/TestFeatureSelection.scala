@@ -19,15 +19,59 @@ package com.amazon.deequ.featureselection
 import com.amazon.deequ.SparkContextSpec
 import com.amazon.deequ.analyzers.{KLLState, MutualInformation}
 import com.amazon.deequ.utils.FixtureSupport
+import org.apache.spark.mllib.feature.MrmrSelector
 import org.apache.spark.sql.DeequFunctions.{stateful_kll_2, stateful_kll_agg}
+import org.apache.spark.sql.functions
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types.{DoubleType, IntegerType}
 import org.scalatest.{Matchers, WordSpec}
+import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
+import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
+import org.apache.spark.ml.linalg.DenseVector
+import org.apache.spark.mllib.regression.LabeledPoint
 
 class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
 
   "Approximate Mutual Information" should {
+
+    "calculate MRMR with fastmrmr" in
+      withSparkSession { sparkSession =>
+        // create test dataset
+        val nRows = 10000
+        val nVal = 1000
+        val nTargetBins = 100
+
+        var df = sparkSession.read.format("parquet")
+          .load(f"test-data/features_int_$nVal.parquet")
+        df = df.withColumn("target",
+          functions.round(functions.rand(10) * lit(nTargetBins)))
+
+        println(df.rdd.getNumPartitions)
+        df.cache()
+        df.count()
+
+        val assembler = new VectorAssembler()
+          .setInputCols((1 to nVal).map(i => f"att$i").toArray)
+          .setOutputCol("features")
+
+        val output = assembler.transform(df)
+
+        val data = output.select(col("target").alias("label"), col("features"))
+          .rdd
+          .map(row => LabeledPoint(row.getAs[Double]("label"), DenseVectorMLLib.fromML(row
+            .getAs[DenseVector]("features"))))
+
+        val indexer = new StringIndexer()
+          .setInputCol("category")
+          .setOutputCol("categoryIndex")
+
+        val t0 = System.nanoTime
+        MrmrSelector.train(data, 1, 1)
+        val duration0 = (System.nanoTime - t0) / 1e9d
+        println(f"fastmrmr x $duration0")
+      }
+
 
     "calculate Mutual Information based on KLL sketches" in
       withSparkSession { sparkSession =>
