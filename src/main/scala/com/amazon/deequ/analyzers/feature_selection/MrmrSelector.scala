@@ -130,8 +130,16 @@ class MrmrSelector protected[feature] extends Serializable {
         val inputs = for(i <- 0 until values.size) yield (rindex + i, values(i).toByte)
         val output = Array((rindex + values.size, label.toByte))
         inputs ++ output
-    }).sortByKey(numPartitions = nPart) // put numPartitions parameter        
+    }).sortByKey(numPartitions = nPart) // put numPartitions parameter
     columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+    runColumnar(columnarData, nToSelect, nAllFeatures)
+  }
+
+  private[feature] def runColumnar(
+                            columnarData: RDD[(Long, Byte)],
+                            nToSelect: Int,
+                            nAllFeatures: Int) = {
 
     require(nToSelect < nAllFeatures)
     val selected = selectFeatures(columnarData, nToSelect, nAllFeatures)
@@ -166,6 +174,13 @@ object MrmrSelector {
              nToSelect: Int = 25,
              numPartitions: Int = 0) = {
     new MrmrSelector().run(data, nToSelect, numPartitions)
+  }
+
+  def trainColumnar(
+             data: RDD[(Long, Byte)],
+             nToSelect: Int = 25,
+             nAllFeatures: Int) = {
+    new MrmrSelector().runColumnar(data, nToSelect, nAllFeatures)
   }
 
 }

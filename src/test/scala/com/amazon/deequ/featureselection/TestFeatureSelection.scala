@@ -17,19 +17,24 @@
 package com.amazon.deequ.featureselection
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.{KLLState, MutualInformation}
+import com.amazon.deequ.analyzers.{Histogram, KLLState, MutualInformation}
 import com.amazon.deequ.utils.FixtureSupport
+import org.apache.spark.ml.Pipeline
 import org.apache.spark.mllib.feature.MrmrSelector
 import org.apache.spark.sql.DeequFunctions.{stateful_kll_2, stateful_kll_agg}
-import org.apache.spark.sql.functions
+import org.apache.spark.sql.{Row, functions}
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{DoubleType, IntegerType}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, StringType}
 import org.scalatest.{Matchers, WordSpec}
-import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
-import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
+import org.apache.spark.ml.feature.{StringIndexer, StringIndexerModel, VectorAssembler}
+import org.apache.spark.mllib.linalg.{SparseVector, DenseVector => DenseVectorMLLib}
 import org.apache.spark.ml.linalg.DenseVector
 import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.XxHash64Function
+import org.apache.spark.storage.StorageLevel
+
+import scala.annotation.switch
 
 class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
@@ -55,23 +60,96 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         //val x = XxHash64Function.hash(v, child.dataType, 42L)
         //LongFreqSketchImpl
 
+        val t = System.nanoTime
+
+        val allColumns = (1 to nVal).map(i => f"att$i").toArray :+ "target"
+        val namesToIndexes = allColumns.zipWithIndex
+        val namesToSchemaIndexes = df.schema.fields
+          .map { _.name }
+          .zipWithIndex
+          .toMap
+        val indexesToTypes = df.schema
+          .map { _.dataType }
+          .toList
+        val byteLookup = (0 to 100).map(i => (f"$i" -> i.byteValue())).toMap
+        val byteLookupDouble = (0 to 100).map(i => (f"$i"+".0" -> i.byteValue())).toMap
+
+        val nAllFeatures = allColumns.size
+        val columnarData: RDD[(Long, Byte)] = df.rdd.zipWithIndex().flatMap (
+           row => {
+            val values = row._1
+            val r = row._2
+            val rindex = r * nAllFeatures
+            val outputs = namesToIndexes.map { col =>
+              val column = col._1
+              val cindex = col._2
+              val dfIdx = namesToSchemaIndexes(column)
+              val dataType = indexesToTypes(dfIdx)
+              val valueInColumn = (dataType: @switch) match {
+                case StringType  => {
+                  if (values.isNullAt(dfIdx)) {
+                    0.toByte
+                  } else {
+                    XxHash64Function.hash(values.get(dfIdx), dataType, 42L).toByte
+                  }
+                }
+                case IntegerType  => {
+                  val str = values.getInt(dfIdx).toString
+                  byteLookup(str)
+                }
+                case DoubleType  => {
+                  val str = values.getDouble(dfIdx).toString
+                  byteLookupDouble(str)
+                }
+              }
+              (rindex + cindex, valueInColumn)
+            }
+            outputs
+          }).sortByKey(numPartitions = 1) // put numPartitions parameter
+
+        columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        columnarData.count()
+        val duration = (System.nanoTime - t) / 1e9d
+        println(f"prep x $duration")
+
+        /*
+        val t = System.nanoTime
+        val stringSelectors = (1 to nVal).map(i => col(f"att$i").cast(StringType).alias
+        (f"s_att$i")) :+ col("target")
+
+        val df2 = df.select(stringSelectors: _*)
+
+        val indexer = (1 to nVal).map(i => {
+          val simple = new StringIndexerModel((1 to 100).map(i => f"$i").toArray)
+          simple.setInputCol(f"s_att$i")
+          simple.setOutputCol(f"idx_att$i")
+          simple.setHandleInvalid("keep")
+          simple
+        }).toArray
+
+
         val assembler = new VectorAssembler()
-          .setInputCols((1 to nVal).map(i => f"att$i").toArray)
+          .setInputCols((1 to nVal).map(i => f"idx_att$i").toArray)
           .setOutputCol("features")
 
-        val output = assembler.transform(df)
+        val pipeline = new Pipeline().setStages(indexer :+ assembler)
+        val output = pipeline.fit(df2).transform(df2)
 
-        val data = output.select(col("target").alias("label"), col("features"))
+        val output2 = output.select(col("target").alias("label"), col("features"))
+        output2.cache()
+        output2.count()
+        val duration = (System.nanoTime - t) / 1e9d
+        println(f"predp x $duration")
+
+        val data = output2
           .rdd
           .map(row => LabeledPoint(row.getAs[Double]("label"), DenseVectorMLLib.fromML(row
             .getAs[DenseVector]("features"))))
 
-        val indexer = new StringIndexer()
-          .setInputCol("category")
-          .setOutputCol("categoryIndex")
+      */
 
         val t0 = System.nanoTime
-        MrmrSelector.train(data, 1, 1)
+        MrmrSelector.trainColumnar(columnarData, 1, nAllFeatures)
         val duration0 = (System.nanoTime - t0) / 1e9d
         println(f"fastmrmr x $duration0")
       }
