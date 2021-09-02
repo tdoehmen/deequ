@@ -29,6 +29,7 @@ import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
 import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
 import org.apache.spark.ml.linalg.DenseVector
 import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.sql.catalyst.expressions.XxHash64Function
 
 class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
@@ -51,6 +52,9 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         df.cache()
         df.count()
 
+        //val x = XxHash64Function.hash(v, child.dataType, 42L)
+        //LongFreqSketchImpl
+
         val assembler = new VectorAssembler()
           .setInputCols((1 to nVal).map(i => f"att$i").toArray)
           .setOutputCol("features")
@@ -72,7 +76,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         println(f"fastmrmr x $duration0")
       }
 
-
+/*
     "calculate Mutual Information based on KLL sketches" in
       withSparkSession { sparkSession =>
 
@@ -323,5 +327,6 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
          */
 
       }
+      */
   }
 }

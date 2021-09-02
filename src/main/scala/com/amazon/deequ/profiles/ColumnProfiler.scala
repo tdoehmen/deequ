@@ -307,6 +307,7 @@ object ColumnProfiler {
     val approxCountDistinctAnalyzers = new ListBuffer[ApproxCountDistinct]()
     val analyzersForGenericStats = relevantColumns.flatMap { name =>
           approxCountDistinctAnalyzers.append(ApproxCountDistinct(name))
+
           val analyzers = ListBuffer[Analyzer[_, Metric[_]]]()
 
           // Add default analyzers.
@@ -411,6 +412,7 @@ object ColumnProfiler {
 
     createProfiles(relevantColumns, genericStatistics, numericStatistics,
       CategoricalColumnStatistics(secondPassResults), Some(metricStates))
+
   }
 
   private[this] def getRelevantColumns(
@@ -799,9 +801,7 @@ object ColumnProfiler {
     val correlation = (correlationLower ++ correlationDiagonal ++ correlationUpper).flatten
       .groupBy(_._1)
       .map { case (key, value) => value.reduce((x, y) => x._1 -> (x._2.toSeq ++ y._2.toSeq).toMap
-      )
-      }
-
+        )}
 
     NumericColumnStatistics(means, stdDevs, minima, maxima, sums, kll,
       approxPercentiles, correlation)

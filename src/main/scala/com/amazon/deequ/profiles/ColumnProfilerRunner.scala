@@ -57,7 +57,7 @@ class ColumnProfilerRunner {
       maxCorrelationCols: Option[Int],
       exactUniqueness: Boolean,
       exactUniquenessCols: Option[Seq[String]])
-  : ColumnProfiles = {
+    : ColumnProfiles = {
 
     if (cacheInputs) {
       data.cache()
