@@ -465,10 +465,11 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
         kllProfiling = true,
         kllParameters = Option(KLLParameters(2, 0.64, 2)))
         .profiles(attribute)
+      
       val numericalProfile = actualColumnProfile.asInstanceOf[NumericColumnProfile]
       assert(numericalProfile.kll.isDefined)
       val kll = numericalProfile.kll
-      assert(kll.get.buckets == List(BucketValue(1.0, 3.5, 4), BucketValue(3.5, 6.0, 2)))
+      assert(kll.get.buckets == List(BucketValue(0.0, 3.0, 3), BucketValue(3.0, 6.0, 3)))
       assert(kll.get.parameters == List(0.64, 2.0))
       assert(kll.get.data.length == 2)
       val target = Array(Array(5.0, 6.0), Array(1.0, 3.0))

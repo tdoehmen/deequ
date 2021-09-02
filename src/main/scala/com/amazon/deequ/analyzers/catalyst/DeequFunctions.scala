@@ -85,8 +85,9 @@ object DeequFunctions {
       column: Column,
       sketchSize: Int,
       shrinkingFactor: Double): Column = {
-    val statefulKLL = new StatefulKLLSketch(sketchSize, shrinkingFactor)
-    statefulKLL(column)
+    val statefulKLL2 = functions.udaf(new StatefulKLLSketch2(sketchSize, shrinkingFactor,
+      bufferSize = 1000))
+    statefulKLL2(column)
   }
 }
 
