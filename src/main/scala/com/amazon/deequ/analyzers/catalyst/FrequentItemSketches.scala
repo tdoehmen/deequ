@@ -18,12 +18,11 @@
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
 import scala.util.control.NonFatal
-
 import org.apache.datasketches.ArrayOfStringsSerDe
 import org.apache.datasketches.frequencies.{ErrorType, ItemsSketch, LongsSketch}
 import org.apache.datasketches.memory.Memory
-
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, ExprCode}
@@ -89,6 +88,11 @@ class LongFreqSketchImpl(_impl: LongsSketch) extends BaseFreqSketchImpl {
     _impl.merge(other.impl.asInstanceOf[LongsSketch])
   def getFrequentItems(): Array[(Any, Long)] = {
     _impl.getFrequentItems(ErrorType.NO_FALSE_POSITIVES).map { i =>
+      (i.getItem, i.getEstimate)
+    }
+  }
+  def getAllFrequentItems(): Array[(Any, Long)] = {
+    _impl.getFrequentItems(ErrorType.NO_FALSE_NEGATIVES).map { i =>
       (i.getItem, i.getEstimate)
     }
   }
@@ -372,5 +376,36 @@ case class FreqItemFromSketchState(child: Expression)
          |}
        """.stripMargin
     })
+  }
+}
+
+object FrequentItemSketchHelpers {
+
+
+  def sketchPartitions(namesToIndexes: Map[String, Int], size: Int)(rows: Iterator[Row])
+  : Iterator[Map[String, Array[Byte]]] = {
+
+    val columnsAndSketches = namesToIndexes.map { kv => kv._1 -> new LongFreqSketchImpl(new
+        LongsSketch(size)) }
+
+    // Include the index to avoid a lookup per row
+    val indexesAndSketches = columnsAndSketches.map { case (column, sketch) =>
+      (namesToIndexes(column), sketch )
+    }
+
+    while (rows.hasNext) {
+      val row = rows.next()
+      indexesAndSketches.foreach { case (index, sketch) =>
+        if (!row.isNullAt(index)) {
+          sketch.update(row.get(index))
+        }
+      }
+    }
+
+    val columnsAndSketchesSerialized = columnsAndSketches.map { case(column, sketch) =>
+      (column, sketch.serializeTo())
+    }
+
+    Iterator.single(columnsAndSketchesSerialized)
   }
 }
