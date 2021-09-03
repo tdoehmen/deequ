@@ -17,6 +17,8 @@
 package com.amazon.deequ.featureselection
 
 import com.amazon.deequ.SparkContextSpec
+import com.amazon.deequ.analyzers.KLLParameters
+import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
 import com.amazon.deequ.utils.FixtureSupport
 import org.apache.datasketches.frequencies.LongsSketch
 import org.apache.spark.mllib.feature.MrmrSelector
@@ -48,41 +50,56 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
          */
 
         // create test dataset
-        val nRows = 50000
-        val nVal = 1000
-        val nTargetBins = 100
-        val nSelectFeatures = 2
-        val nBuckets = 255
+        val nBuckets = 255 // current fastmrmr impl allows max 255 (byte-size)
+        val nSelectFeatures = 10
+        val nRowLimit = 1000000
+        val normalizedVarianceThreshold = 0.01
+        val distinctnessThresholdIntegral = 0.9
+        val distinctnessThresholdOther = 0.5
+        val completenessThreshold = 0.5
         val discretizationTreshold = 100
-        val globalMaxNumeric = 1000.0
-        val targetInp = "Survived"
+        val frequentItemSketchSize = 1024
         val target = "target"
 
         val byteCompatibleTypes = Seq(BooleanType, ByteType)
         val numericTypes = Seq(ShortType, IntegerType, LongType, FloatType, DoubleType,
           DecimalType, TimestampType, DateType)
+        val integralTypes = Seq(ShortType, IntegerType, LongType, TimestampType, DateType)
 
-        val t00 = System.nanoTime
-
-
+        val tLoadingAndStats = System.nanoTime
+        /*
+        val targetInp = "Survived"
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
-          .drop("PassengerId")
           .withColumnRenamed(targetInp, target)
-        /*
-        var df = sparkSession.read.format("parquet")
-          .load(f"test-data/features_int_10k_$nVal.parquet")
-        df = df.withColumn(target,
-          functions.round(functions.rand(10) * lit(nTargetBins)))
         */
 
+        val nVal = 1000
+        val nTargetBins = 100
+        var df = sparkSession.read.format("parquet")
+          .load(f"test-data/features_int_50k_$nVal.parquet")
+        df = df.withColumn(target,
+          functions.round(functions.rand(10) * lit(nTargetBins)))
+
+        df.limit(nRowLimit)
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
         val nPart = df.rdd.getNumPartitions
+        println("number of partitions")
         println(nPart)
 
 
+        /*val tdeequ = System.nanoTime
         // stats for feature selection and binning (usually provided by profiling json)
+        val profile = ColumnProfiler.profileOptimized(df, correlation = false)
+        val stats = profile.profiles
+        val durationdeequ = (System.nanoTime - tdeequ) / 1e9d
+        println(f"stats deequ filter x $durationdeequ")
+         */
+
+        // stats for feature selection and binning (a bit faster than deequ profiling (5-50%)
         val numStatsAggs = df.schema.filter(c => numericTypes.contains(c.dataType))
           .flatMap(c => Seq(
           min(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_min"),
@@ -99,7 +116,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           count(when(col(c.name).isNull,c.name)).cast(DoubleType).alias(c.name+"_count_null")))
         val stats = df.select(numStatsAggs ++ otherStatsAggs: _*).first()
 
-        println(stats)
+        //println(stats)
 
         // select features (simple low variance, low completeness, high distinctness filter)
         val selectedColumns = df.schema.filter(kv => kv.name != target).filterNot(c => {
@@ -108,26 +125,34 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           val countNull = stats.getAs[Double](c.name+"_count_null")
           val countSafe = if (count == 0) 1 else count
           val noVariance = distinct == 1
-          val lowCompleteness = (count - countNull) / countSafe < 0.1
+          val lowCompleteness = (count - countNull) / countSafe < completenessThreshold
           if (numericTypes.contains(c.dataType)) {
             val stddev = stats.getAs[Double](c.name+"_stddev")
             val mean = stats.getAs[Double](c.name+"_mean")
             val meanSafe = if (mean==0) 1e-100 else mean
-            val lowVariance = (stddev/meanSafe)*(stddev/meanSafe) < 0.01
-            noVariance || lowCompleteness || lowVariance
+            val lowVariance = (stddev/meanSafe)*(stddev/meanSafe) < normalizedVarianceThreshold
+            if (integralTypes.contains(c.dataType)) {
+              val highDistinctness = (distinct / countSafe) > distinctnessThresholdIntegral
+              noVariance || lowCompleteness || lowVariance || highDistinctness
+              lowCompleteness || lowVariance
+            } else {
+              noVariance || lowCompleteness || lowVariance
+              lowCompleteness || lowVariance
+            }
           } else {
-            val highDistinctness = (distinct / countSafe) > 0.50
+            val highDistinctness = (distinct / countSafe) > distinctnessThresholdOther
             noVariance || lowCompleteness || highDistinctness
+            lowCompleteness
           }
         }).map(c => c.name) :+ target
 
         df = df.select(selectedColumns.map(c => col(c)).toArray: _*)
 
-        val duration00 = (System.nanoTime - t00) / 1e9d
-        println(f"pre filter x $duration00")
+        val durationLoadingAndStats = (System.nanoTime - tLoadingAndStats) / 1e9d
+        println(f"loading, stats, pre-filter x $durationLoadingAndStats")
 
+        val tHashingBucketing = System.nanoTime
 
-        val t = System.nanoTime
         //val selectedColumns = (1 to nVal).map(i => f"att$i").toArray :+ "target"
         val selectedIndexes = df.schema.fields
           .map { _.name }
@@ -137,6 +162,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           .map { info => info.name -> info.dataType }
           .toMap
 
+        println("selected features and indexes")
         println(selectedIndexes.map(i => (i._1, i._2 + 1)).toMap)
 
         // create bucket lookups
@@ -201,7 +227,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
                   case StringType =>
                     XxHash64Function.hash(UTF8String.fromString(values.getString(dfIdx)),
                       dataType, 42L)
-                  case _ => // Binary, Array, Map, Struct
+                  case _ => // Numerics, Binary, Array, Map, Struct
                     XxHash64Function.hash(values.get(dfIdx), dataType, 42L)
                 }
               }
@@ -211,10 +237,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         hashedTable.persist(StorageLevel.MEMORY_AND_DISK_SER)
         hashedTable.count()
-        hashedTable.take(1).foreach(println)
-        println("data loaded / hashs computed")
+        df.unpersist()
+        val durationHashingBucketing = (System.nanoTime - tHashingBucketing) / 1e9d
+        println(f"hashing, bucketing x $durationHashingBucketing")
 
-        val sketching = FrequentItemSketchHelpers.sketchPartitions(hashingColumns, 1024) _
+        val tFrequentItemSketches = System.nanoTime
+
+        val sketching = FrequentItemSketchHelpers.sketchPartitions(hashingColumns,
+          frequentItemSketchSize) _
         val sketchPerColumn =
           hashedTable
             .mapPartitions(sketching, preservesPartitioning = true)
@@ -245,7 +275,15 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           (kv._1 -> items_lookup)
         })
 
+
+        println("hashing colums")
         println(hashingColumnsLookups.keys)
+
+        val durationFrequentItemSketches = (System.nanoTime - tFrequentItemSketches) / 1e9d
+        println(f"frequent item sketches x $durationFrequentItemSketches")
+
+        val tColumnarBinary = System.nanoTime
+
         /*
         val bucketingLookups = bucketingColumns.map( col => {
           col._1 -> (0.0, globalMaxNumeric-0.0)
@@ -261,8 +299,6 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           kv._2 -> bucketingLookups.get(kv._1)
         }).toArray.sortBy(kv => kv._1).map(kv => kv._2)
         */
-
-        println("hash lookups computed")
 
         val columnarData: RDD[(Long, Byte)] = hashedTable.zipWithIndex().flatMap (
            row => {
@@ -290,13 +326,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
         columnarData.count()
-
-        println("columnar data created")
-
-        val duration = (System.nanoTime - t) / 1e9d
-        println(f"prep x $duration")
-
         hashedTable.unpersist()
+
+        val durationColumnarBinary = (System.nanoTime - tColumnarBinary) / 1e9d
+        println(f"columnar binary rdd construction x $durationColumnarBinary")
+
+        val durationTotal = durationLoadingAndStats + durationHashingBucketing +
+          durationFrequentItemSketches + durationColumnarBinary
+        println(f"prep total x $durationTotal")
 
         /*
         val t = System.nanoTime
@@ -334,10 +371,12 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
       */
 
-        val t0 = System.nanoTime
-        MrmrSelector.trainColumnar(columnarData, nSelectFeatures, nAllFeatures)
-        val duration0 = (System.nanoTime - t0) / 1e9d
-        println(f"fastmrmr x $duration0")
+        val tSelection = System.nanoTime
+
+        MrmrSelector.trainColumnar(columnarData,  nSelectFeatures,  nAllFeatures)
+
+        val durationSelection = (System.nanoTime - tSelection) / 1e9d
+        println(f"fastmrmr x $durationSelection")
       }
 
 /*

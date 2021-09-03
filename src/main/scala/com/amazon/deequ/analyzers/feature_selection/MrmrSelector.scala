@@ -179,9 +179,10 @@ object MrmrSelector {
 
   def trainColumnar(
              data: RDD[(Long, Byte)],
-             nToSelect: Int = 25,
+             nToSelect: Int = -1,
              nAllFeatures: Int) = {
-    new MrmrSelector().runColumnar(data, nToSelect, nAllFeatures)
+    val nSelect = if(nToSelect < 0 || nToSelect > nAllFeatures-1) nAllFeatures-1 else nToSelect
+    new MrmrSelector().runColumnar(data, nSelect, nAllFeatures)
   }
 
 }
