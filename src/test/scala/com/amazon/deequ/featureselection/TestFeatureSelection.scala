@@ -64,19 +64,19 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val t00 = System.nanoTime
 
-        /*
+
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
           .drop("PassengerId")
           .withColumnRenamed(targetInp, target)
-        */
+        /*
         var df = sparkSession.read.format("parquet")
           .load(f"test-data/features_int_10k_$nVal.parquet")
         df = df.withColumn(target,
           functions.round(functions.rand(10) * lit(nTargetBins)))
-
+        */
 
         val nPart = df.rdd.getNumPartitions
         println(nPart)
@@ -159,7 +159,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           bucketingLookups.contains(kv._1) || byteCompatibleTypes.contains(selectedTypes(kv._1))
         })
 
-        val bucketize = (rawValue: Double, column: String) => {
+        val bucketizeFn = (rawValue: Double, column: String) => {
           val mn = bucketingLookups(column)._1
           val range = bucketingLookups(column)._2
           val scaled = ((rawValue - mn) / range) * (nBuckets - 1)
@@ -174,69 +174,35 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             val outputs = selectedColumns.map { column =>
               val dfIdx = selectedIndexes(column)
               val dataType = selectedTypes(column)
-              if (byteCompatibleTypes.contains(dataType)) {
-                if (values.isNullAt(dfIdx)) {
-                  0.toByte
-                } else {
-                  dataType match {
-                    case BooleanType => {
-                      if (values.getBoolean(dfIdx)) 1.toByte else 0.toByte
-                    }
-                    case ByteType => {
-                      values.getByte(dfIdx)
-                    }
-                    case _ => { // Not supported
-                      throw new IllegalArgumentException(f"$dataType not byte compatible")
-                    }
-                  }
+              if (values.isNullAt(dfIdx)) {
+                0
+              } else if (byteCompatibleTypes.contains(dataType)) {
+                dataType match {
+                  case BooleanType => if (values.getBoolean(dfIdx)) 1.toByte else 0.toByte
+                  case ByteType => values.getByte(dfIdx)
+                  case _ => // Not supported
+                    throw new IllegalArgumentException(f"$dataType not byte compatible")
                 }
               } else if (bucketingLookups.contains(column)) {
-                if (values.isNullAt(dfIdx)) {
-                  0.toByte
-                } else {
-                  dataType match {
-                    case ShortType => {
-                      bucketize(values.getShort(dfIdx).toDouble, column)
-                    }
-                    case IntegerType => {
-                      bucketize(values.getInt(dfIdx).toDouble, column)
-                    }
-                    case LongType => {
-                      bucketize(values.getLong(dfIdx).toDouble, column)
-                    }
-                    case FloatType => {
-                      bucketize(values.getFloat(dfIdx).toDouble, column)
-                    }
-                    case DoubleType => {
-                      bucketize(values.getDouble(dfIdx), column)
-                    }
-                    case DecimalType() => {
-                      bucketize(values.getDecimal(dfIdx).doubleValue(), column)
-                    }
-                    case TimestampType => {
-                      bucketize(values.getTimestamp(dfIdx).getTime, column)
-                    }
-                    case DateType => {
-                      bucketize(values.getDate(dfIdx).getTime, column)
-                    }
-                    case _ => { // Not supported
-                      throw new IllegalArgumentException(f"$dataType not supported for bucketing")
-                    }
-                  }
+                dataType match {
+                  case ShortType => bucketizeFn(values.getShort(dfIdx).toDouble, column)
+                  case IntegerType =>  bucketizeFn(values.getInt(dfIdx).toDouble, column)
+                  case LongType =>  bucketizeFn(values.getLong(dfIdx).toDouble, column)
+                  case FloatType =>  bucketizeFn(values.getFloat(dfIdx).toDouble, column)
+                  case DoubleType => bucketizeFn(values.getDouble(dfIdx), column)
+                  case DecimalType() => bucketizeFn(values.getDecimal(dfIdx).doubleValue(), column)
+                  case TimestampType => bucketizeFn(values.getTimestamp(dfIdx).getTime, column)
+                  case DateType => bucketizeFn(values.getDate(dfIdx).getTime, column)
+                  case _ => // Not supported
+                    throw new IllegalArgumentException(f"$dataType not supported for bucketing")
                 }
               } else {
-                if (values.isNullAt(dfIdx)) {
-                  0
-                } else {
-                  dataType match {
-                    case StringType => {
-                      XxHash64Function.hash(UTF8String.fromString(values.getString(dfIdx)),
-                        dataType, 42L)
-                    }
-                    case _ => { // Binary, Array, Map, Struct
-                      XxHash64Function.hash(values.get(dfIdx), dataType, 42L)
-                    }
-                  }
+                dataType match {
+                  case StringType =>
+                    XxHash64Function.hash(UTF8String.fromString(values.getString(dfIdx)),
+                      dataType, 42L)
+                  case _ => // Binary, Array, Map, Struct
+                    XxHash64Function.hash(values.get(dfIdx), dataType, 42L)
                 }
               }
             }
@@ -303,12 +269,11 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             val values = row._1
             val r = row._2
             val rindex = r * nAllFeatures
-            val outputs = selectedIndexes.map { col =>
-              val column = col._1
-              val cindex = col._2
-              val dfIdx = cindex
+            val outputs = selectedIndexes.map { c =>
+              val column = c._1
+              val dfIdx = c._2
               if (values.isNullAt(dfIdx)) {
-                (rindex + cindex, 0.toByte)
+                (rindex + dfIdx, 0.toByte)
               } else {
                 val valueInColumn = if (hashingColumns.contains(column)) {
                   val lookup = hashingColumnsLookups(column)
@@ -317,7 +282,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
                 } else {
                   values.getLong(dfIdx).toByte
                 }
-                (rindex + cindex, valueInColumn)
+                (rindex + dfIdx, valueInColumn)
               }
             }
             outputs
