@@ -53,7 +53,8 @@ class MrmrSelector protected[feature] extends Serializable {
 
     val label = nFeatures - 1
     val nInstances = data.count() / nFeatures
-    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> v})
+    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> (if (v >= 0) v else
+      (v+256))})
       .distinct().groupByKey().mapValues(_.max + 1).collectAsMap().toMap
 
     // calculate relevance
