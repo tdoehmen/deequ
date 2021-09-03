@@ -43,10 +43,10 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
       withSparkSession { sparkSession =>
         /*
         Evaluation
-        1000 cols (500 str/num), 100 target bins, 1 feature selected, 10k rows -> 45s, 29s
-        1000 cols (500 str/num), 100 target bins, 100 feature selected, 10k rows -> 45s, 2229s
-        1000 cols (500 str/num), 100 target bins, 1 feature selected, 50k rows -> 261s, 145s
-        1000 cols (500 str/num), 100 target bins, 1 feature selected, 100k rows ->
+    1000 cols (500 str/num), 100 target bins, 1 feature selected, 10k rows -> 45s->112s, 29s
+    1000 cols (500 str/num), 100 target bins, 100 feature selected, 10k rows -> 45s->112s, 2229s
+    1000 cols (500 str/num), 100 target bins, 1 feature selected, 50k rows -> 261s->488s, 145s
+    1000 cols (500 str/num), 100 target bins, 1 feature selected, 100k rows ->
          */
 
         // create test dataset
@@ -67,14 +67,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         val integralTypes = Seq(ShortType, IntegerType, LongType, TimestampType, DateType)
 
         val tLoadingAndStats = System.nanoTime
-        /*
+
         val targetInp = "Survived"
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
           .withColumnRenamed(targetInp, target)
-        */
+        /*
 
         val nVal = 1000
         val nTargetBins = 100
@@ -82,7 +82,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           .load(f"test-data/features_int_50k_$nVal.parquet")
         df = df.withColumn(target,
           functions.round(functions.rand(10) * lit(nTargetBins)))
-
+*/
         df.limit(nRowLimit)
         df.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
@@ -102,26 +102,26 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         // stats for feature selection and binning (a bit faster than deequ profiling (5-50%)
         val numStatsAggs = df.schema.filter(c => numericTypes.contains(c.dataType))
           .flatMap(c => Seq(
-          min(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_min"),
-          max(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_max"),
+          min(col(c.name)).cast(DoubleType).alias(c.name+"_min"),
+          max(col(c.name)).cast(DoubleType).alias(c.name+"_max"),
           approx_count_distinct(col(c.name)).cast(DoubleType).alias(c.name+"_dist"),
-          count(col(c.name)).cast(DoubleType).alias(c.name+"_count"),
-          count(when(col(c.name).isNull,c.name)).cast(DoubleType).alias(c.name+"_count_null"),
-          stddev(col(c.name)).cast(DoubleType).alias(c.name+"_stddev"),
-          mean(col(c.name)).cast(DoubleType).alias(c.name+"_mean")))
+          count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
+              .cast(DoubleType).alias(c.name + "_count_null"),
+          stddev(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_stddev"),
+          mean(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_mean")))
         val otherStatsAggs = df.schema.filterNot(c => numericTypes.contains(c.dataType))
           .flatMap (c => Seq(
           approx_count_distinct(col(c.name)).cast(DoubleType).alias(c.name+"_dist"),
-          count(col(c.name)).cast(DoubleType).alias(c.name+"_count"),
-          count(when(col(c.name).isNull,c.name)).cast(DoubleType).alias(c.name+"_count_null")))
-        val stats = df.select(numStatsAggs ++ otherStatsAggs: _*).first()
+          count(when(col(c.name).isNull, lit(1))).cast(DoubleType).alias(c.name + "_count_null")))
+        val generalCount = Seq(count(lit(1)).cast(DoubleType).alias("_count"))
+        val stats = df.select(numStatsAggs ++ otherStatsAggs ++ generalCount: _*).first()
 
         //println(stats)
 
         // select features (simple low variance, low completeness, high distinctness filter)
         val selectedColumns = df.schema.filter(kv => kv.name != target).filterNot(c => {
           val distinct = stats.getAs[Double](c.name+"_dist")
-          val count = stats.getAs[Double](c.name+"_count")
+          val count = stats.getAs[Double]("_count")
           val countNull = stats.getAs[Double](c.name+"_count_null")
           val countSafe = if (count == 0) 1 else count
           val noVariance = distinct == 1
@@ -134,15 +134,12 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             if (integralTypes.contains(c.dataType)) {
               val highDistinctness = (distinct / countSafe) > distinctnessThresholdIntegral
               noVariance || lowCompleteness || lowVariance || highDistinctness
-              lowCompleteness || lowVariance
             } else {
               noVariance || lowCompleteness || lowVariance
-              lowCompleteness || lowVariance
             }
           } else {
             val highDistinctness = (distinct / countSafe) > distinctnessThresholdOther
             noVariance || lowCompleteness || highDistinctness
-            lowCompleteness
           }
         }).map(c => c.name) :+ target
 
