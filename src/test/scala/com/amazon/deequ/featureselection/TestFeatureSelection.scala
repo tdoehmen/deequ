@@ -16,6 +16,8 @@
 
 package com.amazon.deequ.featureselection
 
+import java.util.Calendar
+
 import com.amazon.deequ.SparkContextSpec
 import com.amazon.deequ.analyzers.KLLParameters
 import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
@@ -32,6 +34,7 @@ import org.apache.spark.storage.StorageLevel
 import org.apache.spark.unsafe.types.UTF8String
 import org.scalatest.{Matchers, WordSpec}
 
+import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
 
 class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
@@ -49,15 +52,16 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
     1000 cols (500 str/num), 100 target bins, 1 feature selected, 100k rows ->
          */
 
+
         // create test dataset
         val nBuckets = 255 // current fastmrmr impl allows max 255 (byte-size)
-        val nSelectFeatures = 10
+        val nSelectFeatures = -1
         val nRowLimit = 1000000
         val normalizedVarianceThreshold = 0.01
         val distinctnessThresholdIntegral = 0.9
         val distinctnessThresholdOther = 0.5
         val completenessThreshold = 0.5
-        val discretizationTreshold = 100
+        val discretizationTreshold = 2
         val frequentItemSketchSize = 1024
         val target = "target"
 
@@ -68,23 +72,180 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tLoadingAndStats = System.nanoTime
 
+
         val targetInp = "Survived"
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
           .withColumnRenamed(targetInp, target)
-        /*
 
+
+/*
+        val schema = StructType(
+            StructField("bool", BooleanType, true) ::
+            StructField("byte", ByteType, true) ::
+            StructField("short", ShortType, true) ::
+            StructField("int", IntegerType, true) ::
+            StructField("long", LongType, true) ::
+            StructField("float", FloatType, true) ::
+            StructField("dbl", DoubleType, true) ::
+            StructField("dec", DecimalType(38,28), true) ::
+            StructField("ts", TimestampType, true) ::
+            StructField("dt", DateType, true) ::
+            StructField("str", StringType, true) ::
+            StructField("bn", BinaryType, true) ::
+            StructField("arr", ArrayType(IntegerType, true), true) ::
+            StructField("map", MapType(StringType, StringType, true), true) ::
+            StructField("struct", StructType(
+              List(
+                StructField("favorite_color", StringType, true),
+                StructField("age", IntegerType, true)
+              )
+            ), true) :: Nil
+        )
+
+        import java.io.{ByteArrayOutputStream, ObjectOutputStream}
+        val serialise = (value: Any) => {
+          val stream: ByteArrayOutputStream = new ByteArrayOutputStream()
+          val oos = new ObjectOutputStream(stream)
+          oos.writeObject(value)
+          oos.close()
+          stream.toByteArray
+        }
+
+        val dataList = Seq(
+          Row(
+            true,
+            7.toByte,
+            15.toShort,
+            3743,
+            327828732L,
+            5F,
+            123.5,
+            Decimal("1208484888.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-06-29 22:41:30"),
+            java.sql.Date.valueOf("2020-06-29"),
+            "str",
+            serialise("strBinary"),
+            Array(1, 2, 3),
+            Map("aguila" -> "Colombia", "modelo" -> "Mexico"),
+            Row("blue", 45)),
+          Row(
+            false,
+            8.toByte,
+            9.toShort,
+            3742,
+            32728732L,
+            10F,
+            12.5,
+            Decimal("1208484889.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-06-30 22:41:30"),
+            java.sql.Date.valueOf("2020-06-30"),
+            "str2",
+            serialise("strBinary2"),
+            Array(1, 2, 3, 4),
+            Map("aguila" -> "Colombia2", "modelo" -> "Mexico2"),
+            Row("brown", 46)),
+          Row(
+            true,
+            7.toByte,
+            15.toShort,
+            3743,
+            327828732L,
+            15F,
+            123.5,
+            Decimal("1208484888.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-06-29 22:41:30"),
+            java.sql.Date.valueOf("2020-06-29"),
+            "str",
+            serialise("strBinary"),
+            Array(1, 2, 3),
+            Map("aguila" -> "Colombia", "modelo" -> "Mexico"),
+            Row("blue", 45)),
+          Row(
+            false,
+            8.toByte,
+            9.toShort,
+            3742,
+            32728732L,
+            0F,
+            12.5,
+            Decimal("1208484889.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-06-30 22:41:30"),
+            java.sql.Date.valueOf("2020-06-30"),
+            "str2",
+            serialise("strBinary2"),
+            Array(1, 2, 3, 4),
+            Map("aguila" -> "Colombia2", "modelo" -> "Mexico2"),
+            Row("brown", 46)),
+          Row(
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null),
+          Row(
+            false,
+            2.toByte,
+            22.toShort,
+            37342,
+            327228732L,
+            Float.NaN,
+            Double.NegativeInfinity,
+            Decimal("1228384889.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-07-30 22:41:30"),
+            java.sql.Date.valueOf("2020-07-30"),
+            "str3",
+            serialise("strBinary3"),
+            Array(1, 2, 3, 4, 5),
+            Map("aguila" -> "Colombia2", "modelo" -> "Mexico3"),
+            Row("brown", 47)),
+          Row(
+            false,
+            2.toByte,
+            22.toShort,
+            37342,
+            327228732L,
+            Float.PositiveInfinity,
+            Double.NegativeInfinity,
+            Decimal("1228384889.8474763788847476378884747637"),
+            java.sql.Timestamp.valueOf("2020-07-30 22:41:30"),
+            java.sql.Date.valueOf("2020-07-30"),
+            "str3",
+            serialise("strBinary3"),
+            Array(1, 2, 3, 4, 5),
+            Map("aguila" -> "Colombia2", "modelo" -> "Mexico3"),
+            Row("brown", 47))
+        )
+
+        var df = sparkSession.createDataFrame(
+          sparkSession.sparkContext.parallelize(dataList),
+          schema
+        )
+        df = df.withColumn(target,
+          functions.round(functions.rand(10) * lit(1)))
+        df.show()
+*/
+/*
         val nVal = 1000
         val nTargetBins = 100
         var df = sparkSession.read.format("parquet")
-          .load(f"test-data/features_int_50k_$nVal.parquet")
+          .load(f"test-data/features_int_10k_$nVal.parquet")
         df = df.withColumn(target,
-          functions.round(functions.rand(10) * lit(nTargetBins)))
+          functions.round(functions.rand(10) * lit(nTargetBins-1)))
 */
         df.limit(nRowLimit)
-        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
         val nPart = df.rdd.getNumPartitions
         println("number of partitions")
@@ -99,46 +260,71 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         println(f"stats deequ filter x $durationdeequ")
          */
 
+        // convert numerics to doubles and cleaning up positive and negative infinity values
+        val castSelects = df.schema.map(c => {
+          if (c.dataType == FloatType || c.dataType == DoubleType) {
+            when(col(c.name).isin(Double.PositiveInfinity, Double.NegativeInfinity),
+              Double.NaN).otherwise(col(c.name)).alias(c.name)
+          } else if (numericTypes.contains(c.dataType)){
+            col(c.name).cast(DoubleType).alias(c.name)
+          } else {
+            col(c.name).alias(c.name)
+          }
+        })
+        df = df.select(castSelects: _*)
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
         // stats for feature selection and binning (a bit faster than deequ profiling (5-50%)
         val numStatsAggs = df.schema.filter(c => numericTypes.contains(c.dataType))
-          .flatMap(c => Seq(
-          min(col(c.name)).cast(DoubleType).alias(c.name+"_min"),
-          max(col(c.name)).cast(DoubleType).alias(c.name+"_max"),
-          approx_count_distinct(col(c.name)).cast(DoubleType).alias(c.name+"_dist"),
-          count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
-              .cast(DoubleType).alias(c.name + "_count_null"),
-          stddev(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_stddev"),
-          mean(col(c.name).cast(DoubleType)).cast(DoubleType).alias(c.name+"_mean")))
+          .flatMap(c => {
+            val withoutNullAndNan = when(!col(c.name).isNull && !col(c.name).isNaN, col(c.name))
+            Seq(
+            min(withoutNullAndNan).alias(c.name+"_min"),
+            max(withoutNullAndNan).alias(c.name+"_max"),
+            approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+              count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
+                .alias(c.name + "_count_null"),
+            stddev(withoutNullAndNan).alias(c.name+"_stddev"),
+            mean(withoutNullAndNan).alias(c.name+"_mean"))
+          })
         val otherStatsAggs = df.schema.filterNot(c => numericTypes.contains(c.dataType))
           .flatMap (c => Seq(
-          approx_count_distinct(col(c.name)).cast(DoubleType).alias(c.name+"_dist"),
-          count(when(col(c.name).isNull, lit(1))).cast(DoubleType).alias(c.name + "_count_null")))
-        val generalCount = Seq(count(lit(1)).cast(DoubleType).alias("_count"))
-        val stats = df.select(numStatsAggs ++ otherStatsAggs ++ generalCount: _*).first()
+          approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+          count(when(col(c.name).isNull, lit(1))).alias(c.name + "_count_null")))
+        val generalCount = Seq(count(lit(1)).alias("_count"))
+        val stats = df.select(numStatsAggs ++ otherStatsAggs ++
+          generalCount: _*).first()
 
         //println(stats)
 
         // select features (simple low variance, low completeness, high distinctness filter)
         val selectedColumns = df.schema.filter(kv => kv.name != target).filterNot(c => {
-          val distinct = stats.getAs[Double](c.name+"_dist")
-          val count = stats.getAs[Double]("_count")
-          val countNull = stats.getAs[Double](c.name+"_count_null")
+          val distinct = stats.getAs[Long](c.name+"_dist")
+          val count = stats.getAs[Long]("_count")
+          val countNull = stats.getAs[Long](c.name+"_count_null")
           val countSafe = if (count == 0) 1 else count
           val noVariance = distinct == 1
-          val lowCompleteness = (count - countNull) / countSafe < completenessThreshold
+          val lowCompleteness = (count - countNull) / countSafe.toDouble < completenessThreshold
           if (numericTypes.contains(c.dataType)) {
             val stddev = stats.getAs[Double](c.name+"_stddev")
             val mean = stats.getAs[Double](c.name+"_mean")
             val meanSafe = if (mean==0) 1e-100 else mean
             val lowVariance = (stddev/meanSafe)*(stddev/meanSafe) < normalizedVarianceThreshold
             if (integralTypes.contains(c.dataType)) {
-              val highDistinctness = (distinct / countSafe) > distinctnessThresholdIntegral
+              val highDistinctness = (distinct / countSafe.toDouble) > distinctnessThresholdIntegral
+              println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
+                f"lowVariance: $lowVariance  highDistinctness: $highDistinctness")
               noVariance || lowCompleteness || lowVariance || highDistinctness
             } else {
+              println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
+                f"lowVariance: $lowVariance")
               noVariance || lowCompleteness || lowVariance
             }
           } else {
-            val highDistinctness = (distinct / countSafe) > distinctnessThresholdOther
+            val distinctness = (distinct / countSafe.toDouble)
+            val highDistinctness = distinctness > distinctnessThresholdOther
+            println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
+              f"highDistinctness: $highDistinctness $distinctness")
             noVariance || lowCompleteness || highDistinctness
           }
         }).map(c => c.name) :+ target
@@ -150,88 +336,56 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tHashingBucketing = System.nanoTime
 
-        //val selectedColumns = (1 to nVal).map(i => f"att$i").toArray :+ "target"
-        val selectedIndexes = df.schema.fields
+        // creating some lookup tables
+        val selectedIndexes = ListMap(df.schema.fields
           .map { _.name }
-          .zipWithIndex
-          .toMap
+          .zipWithIndex.toSeq: _*)
         val selectedTypes = df.schema
           .map { info => info.name -> info.dataType }
           .toMap
-
         println("selected features and indexes")
-        println(selectedIndexes.map(i => (i._1, i._2 + 1)).toMap)
+        println(selectedIndexes.map(i => (i._1, i._2 + 1)))
+        println(selectedTypes.map(i => (i._1, i._2)))
 
-        // create bucket lookups
-        val bucketingLookupsBuf = ArrayBuffer[(String, (Double, Double))]()
+        val bucketingLookupsBuf = ArrayBuffer[(String, (Double, Double, Long))]()
         selectedTypes.filter(kv => numericTypes.contains(kv._2)).foreach(c => {
           val min = stats.getAs[Double](c._1+"_min")
           val max = stats.getAs[Double](c._1+"_max")
-          val dist = stats.getAs[Double](c._1+"_dist")
+          val dist = stats.getAs[Long](c._1+"_dist")
           if (dist > discretizationTreshold) {
-            bucketingLookupsBuf.append((c._1, (min, max-min)))
+            // add bucketing parameters: min, range, number of buckets
+            bucketingLookupsBuf.append((c._1, (min, max-min, Math.min(nBuckets, dist))))
           }
         })
         val bucketingLookups = bucketingLookupsBuf.toMap
-
         println("bucketing lookups")
         println(bucketingLookups)
 
-        // all columns which are neither bucketized, nor byte compatible are being hashed
         val hashingColumns = selectedIndexes.filterNot(kv => {
           bucketingLookups.contains(kv._1) || byteCompatibleTypes.contains(selectedTypes(kv._1))
         })
+        println("hashing columns")
+        println(hashingColumns)
 
-        val bucketizeFn = (rawValue: Double, column: String) => {
-          val mn = bucketingLookups(column)._1
-          val range = bucketingLookups(column)._2
-          val scaled = ((rawValue - mn) / range) * (nBuckets - 1)
-          scaled.toByte
-        }
+        // Columns which are either bucketizable or byte compatible are converted to bytes,
+        // all others are hashed.
+        val hashingBucketingAndByteCompatibleConversions = selectedIndexes.map(kv => {
+           if (bucketingLookups.contains(kv._1)) {
+             val b = bucketingLookups(kv._1)
+             // put Null/NaN values in 0 bucket.. Put other in following n-1 buckets
+             when(!col(kv._1).isNull && !col(kv._1).isNaN,
+               ((col(kv._1).cast(DoubleType) - b._1) / b._2) * (b._3 - 1) + 1)
+             .otherwise(lit(0)).cast(ByteType).alias(kv._1)
+           } else if (byteCompatibleTypes.contains(selectedTypes(kv._1))) {
+             col(kv._1).cast(ByteType).alias(kv._1)
+           } else {
+             xxhash64(col(kv._1)).alias(kv._1)
+           }
+        }).toSeq
 
-        // binarize, bucketize+binarize, or create hashes
-        val nAllFeatures = selectedIndexes.size
-        val hashedTable: RDD[Row] = df.rdd.map (
-          row => {
-            val values = row
-            val outputs = selectedColumns.map { column =>
-              val dfIdx = selectedIndexes(column)
-              val dataType = selectedTypes(column)
-              if (values.isNullAt(dfIdx)) {
-                0
-              } else if (byteCompatibleTypes.contains(dataType)) {
-                dataType match {
-                  case BooleanType => if (values.getBoolean(dfIdx)) 1.toByte else 0.toByte
-                  case ByteType => values.getByte(dfIdx)
-                  case _ => // Not supported
-                    throw new IllegalArgumentException(f"$dataType not byte compatible")
-                }
-              } else if (bucketingLookups.contains(column)) {
-                dataType match {
-                  case ShortType => bucketizeFn(values.getShort(dfIdx).toDouble, column)
-                  case IntegerType =>  bucketizeFn(values.getInt(dfIdx).toDouble, column)
-                  case LongType =>  bucketizeFn(values.getLong(dfIdx).toDouble, column)
-                  case FloatType =>  bucketizeFn(values.getFloat(dfIdx).toDouble, column)
-                  case DoubleType => bucketizeFn(values.getDouble(dfIdx), column)
-                  case DecimalType() => bucketizeFn(values.getDecimal(dfIdx).doubleValue(), column)
-                  case TimestampType => bucketizeFn(values.getTimestamp(dfIdx).getTime, column)
-                  case DateType => bucketizeFn(values.getDate(dfIdx).getTime, column)
-                  case _ => // Not supported
-                    throw new IllegalArgumentException(f"$dataType not supported for bucketing")
-                }
-              } else {
-                dataType match {
-                  case StringType =>
-                    XxHash64Function.hash(UTF8String.fromString(values.getString(dfIdx)),
-                      dataType, 42L)
-                  case _ => // Numerics, Binary, Array, Map, Struct
-                    XxHash64Function.hash(values.get(dfIdx), dataType, 42L)
-                }
-              }
-            }
-            Row(outputs: _*)
-          })
-
+        val hashedTableDf = df.select(hashingBucketingAndByteCompatibleConversions: _*)
+        hashedTableDf.show()
+        val hashedTable = hashedTableDf.rdd
         hashedTable.persist(StorageLevel.MEMORY_AND_DISK_SER)
         hashedTable.count()
         df.unpersist()
@@ -272,15 +426,15 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           (kv._1 -> items_lookup)
         })
 
-
-        println("hashing colums")
-        println(hashingColumnsLookups.keys)
+        println("hashing column lookups")
+        println(hashingColumnsLookups)
 
         val durationFrequentItemSketches = (System.nanoTime - tFrequentItemSketches) / 1e9d
         println(f"frequent item sketches x $durationFrequentItemSketches")
 
         val tColumnarBinary = System.nanoTime
 
+        val nAllFeatures = selectedIndexes.size
         val columnarData: RDD[(Long, Byte)] = hashedTable.zipWithIndex().flatMap (
            row => {
             val values = row._1
@@ -297,7 +451,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
                   val hashIdx = lookup.getOrElse(values.getLong(dfIdx), 0)
                   hashIdx.toByte
                 } else {
-                  values.getLong(dfIdx).toByte
+                  values.getByte(dfIdx)
                 }
                 (rindex + dfIdx, valueInColumn)
               }
