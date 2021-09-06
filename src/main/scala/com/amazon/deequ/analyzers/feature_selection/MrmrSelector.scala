@@ -134,23 +134,25 @@ class MrmrSelector protected[feature] extends Serializable {
     }).sortByKey(numPartitions = nPart) // put numPartitions parameter
     columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    runColumnar(columnarData, nToSelect, nAllFeatures)
+    val selected = runColumnar(columnarData, nToSelect, nAllFeatures)
+
+    // Print best features according to the mRMR measure
+    val out = selected.map{case (feat, rel) => (feat + 1) + "\t" + "%.4f".format(rel)}.mkString("\n")
+    println("\n*** mRMR features ***\nFeature\tScore\n" + out)
+    // Features must be sorted
   }
 
   private[feature] def runColumnar(
                             columnarData: RDD[(Long, Byte)],
                             nToSelect: Int,
-                            nAllFeatures: Int) = {
+                            nAllFeatures: Int): Seq[(Int, Double)] = {
 
     require(nToSelect < nAllFeatures)
     val selected = selectFeatures(columnarData, nToSelect, nAllFeatures)
 
     columnarData.unpersist()
 
-    // Print best features according to the mRMR measure
-    val out = selected.map{case F(feat, rel) => (feat + 1) + "\t" + "%.4f".format(rel)}.mkString("\n")
-    println("\n*** mRMR features ***\nFeature\tScore\n" + out)
-    // Features must be sorted
+    selected.map{case F(feat, rel) => feat -> rel}
   }
 }
 
@@ -180,9 +182,16 @@ object MrmrSelector {
   def trainColumnar(
              data: RDD[(Long, Byte)],
              nToSelect: Int = -1,
-             nAllFeatures: Int) = {
+             nAllFeatures: Int,
+             indexToFeatures: Map[Int, String]) = {
     val nSelect = if(nToSelect < 0 || nToSelect > nAllFeatures-1) nAllFeatures-1 else nToSelect
-    new MrmrSelector().runColumnar(data, nSelect, nAllFeatures)
+    val selected = new MrmrSelector().runColumnar(data, nSelect, nAllFeatures)
+
+    // Print best features according to the mRMR measure
+    val out = selected.map { case (feat, rel) => (indexToFeatures(feat)) + "\t" + "%.4f"
+      .format(rel) }.mkString("\n")
+    println("\n*** mRMR features ***\nFeature\tScore\n" + out)
+    // Features must be sorted
   }
 
 }

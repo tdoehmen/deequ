@@ -55,13 +55,13 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         // create test dataset
         val nBuckets = 255 // current fastmrmr impl allows max 255 (byte-size)
-        val nSelectFeatures = -1
+        val nSelectFeatures = 1
         val nRowLimit = 1000000
         val normalizedVarianceThreshold = 0.01
         val distinctnessThresholdIntegral = 0.9
         val distinctnessThresholdOther = 0.5
         val completenessThreshold = 0.5
-        val discretizationTreshold = 2
+        val discretizationTreshold = 100
         val frequentItemSketchSize = 1024
         val target = "target"
 
@@ -72,14 +72,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tLoadingAndStats = System.nanoTime
 
-
+/*
         val targetInp = "Survived"
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
           .withColumnRenamed(targetInp, target)
-
+*/
 
 /*
         val schema = StructType(
@@ -237,14 +237,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           functions.round(functions.rand(10) * lit(1)))
         df.show()
 */
-/*
+
         val nVal = 1000
         val nTargetBins = 100
         var df = sparkSession.read.format("parquet")
           .load(f"test-data/features_int_10k_$nVal.parquet")
         df = df.withColumn(target,
           functions.round(functions.rand(10) * lit(nTargetBins-1)))
-*/
+
         df.limit(nRowLimit)
 
         val nPart = df.rdd.getNumPartitions
@@ -260,11 +260,16 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         println(f"stats deequ filter x $durationdeequ")
          */
 
-        // convert numerics to doubles and cleaning up positive and negative infinity values
+        // convert numerics to doubles, while cleaning up positive and negative infinity values
         val castSelects = df.schema.map(c => {
-          if (c.dataType == FloatType || c.dataType == DoubleType) {
+          if (c.dataType == FloatType) {
+            when(col(c.name).isin(Float.PositiveInfinity, Float.NegativeInfinity),
+              Float.NaN).otherwise(col(c.name)).alias(c.name)
+          } else if (c.dataType == DoubleType) {
             when(col(c.name).isin(Double.PositiveInfinity, Double.NegativeInfinity),
               Double.NaN).otherwise(col(c.name)).alias(c.name)
+          } else if (integralTypes.contains(c.dataType)){
+            col(c.name).alias(c.name)
           } else if (numericTypes.contains(c.dataType)){
             col(c.name).cast(DoubleType).alias(c.name)
           } else {
@@ -279,8 +284,8 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           .flatMap(c => {
             val withoutNullAndNan = when(!col(c.name).isNull && !col(c.name).isNaN, col(c.name))
             Seq(
-            min(withoutNullAndNan).alias(c.name+"_min"),
-            max(withoutNullAndNan).alias(c.name+"_max"),
+            min(withoutNullAndNan).cast(DoubleType).alias(c.name+"_min"),
+            max(withoutNullAndNan).cast(DoubleType).alias(c.name+"_max"),
             approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
               count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
                 .alias(c.name + "_count_null"),
@@ -312,19 +317,13 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             val lowVariance = (stddev/meanSafe)*(stddev/meanSafe) < normalizedVarianceThreshold
             if (integralTypes.contains(c.dataType)) {
               val highDistinctness = (distinct / countSafe.toDouble) > distinctnessThresholdIntegral
-              println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
-                f"lowVariance: $lowVariance  highDistinctness: $highDistinctness")
               noVariance || lowCompleteness || lowVariance || highDistinctness
             } else {
-              println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
-                f"lowVariance: $lowVariance")
               noVariance || lowCompleteness || lowVariance
             }
           } else {
             val distinctness = (distinct / countSafe.toDouble)
             val highDistinctness = distinctness > distinctnessThresholdOther
-            println(c.name + f" noVariance: $noVariance lowCompleteness: $lowCompleteness " +
-              f"highDistinctness: $highDistinctness $distinctness")
             noVariance || lowCompleteness || highDistinctness
           }
         }).map(c => c.name) :+ target
@@ -384,7 +383,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         }).toSeq
 
         val hashedTableDf = df.select(hashingBucketingAndByteCompatibleConversions: _*)
-        hashedTableDf.show()
+        //hashedTableDf.show()
         val hashedTable = hashedTableDf.rdd
         hashedTable.persist(StorageLevel.MEMORY_AND_DISK_SER)
         hashedTable.count()
@@ -427,7 +426,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         })
 
         println("hashing column lookups")
-        println(hashingColumnsLookups)
+        //println(hashingColumnsLookups)
 
         val durationFrequentItemSketches = (System.nanoTime - tFrequentItemSketches) / 1e9d
         println(f"frequent item sketches x $durationFrequentItemSketches")
@@ -472,7 +471,9 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tSelection = System.nanoTime
 
-        MrmrSelector.trainColumnar(columnarData,  nSelectFeatures,  nAllFeatures)
+        val indexToFeatures = selectedIndexes.map(kv => kv._2 -> kv._1)
+
+        MrmrSelector.trainColumnar(columnarData,  nSelectFeatures,  nAllFeatures, indexToFeatures)
 
         val durationSelection = (System.nanoTime - tSelection) / 1e9d
         println(f"fastmrmr x $durationSelection")
