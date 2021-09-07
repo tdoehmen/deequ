@@ -311,7 +311,7 @@ object ColumnProfiler {
             analyzers ++= Seq(Minimum(name), Maximum(name), Mean(name),
                StandardDeviation(name), Sum(name))
             // Add KLL analyzer.
-            if (histogram && predefinedTypes(name) != Decimal) {
+            if (histogram) {
               analyzers += KLLSketch(name, kllParameters)
             }
             if (correlation && (maxCorrelationCols.isEmpty || (numericColumnNames.length <=
@@ -797,7 +797,7 @@ object ColumnProfiler {
 
   /* Identifies all columns, which:
    *
-   * (1) have string, boolean, double, float, integer, long, or short data type
+   * (1) have string, boolean, double, float, integer, long, decimal, or short data type
    * (2) have less than `lowCardinalityHistogramThreshold` approximate distinct values
    */
   private[this] def findTargetColumnsForHistograms(
@@ -810,14 +810,15 @@ object ColumnProfiler {
       StringType, BooleanType, DoubleType, FloatType, IntegerType, LongType, ShortType
     )
     val originalStringNumericOrBooleanColumns = schema
-      .filter { field => validSparkDataTypesForHistograms.contains(field.dataType) }
+      .filter { field => validSparkDataTypesForHistograms.contains(field.dataType) ||
+        genericStatistics.typeOf(field.name) == Decimal }
       .map { field => field.name }
       .toSet
 
     genericStatistics.approximateNumDistincts
       .filter { case (column, _) =>
         originalStringNumericOrBooleanColumns.contains(column) &&
-          Set(String, Boolean, Integral, Fractional).contains(genericStatistics.typeOf
+          Set(String, Boolean, Integral, Fractional, Decimal).contains(genericStatistics.typeOf
           (column))
       }
       .filter { case (_, count) => count <= lowCardinalityHistogramThreshold }

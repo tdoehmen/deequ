@@ -218,6 +218,18 @@ trait FixtureSupport {
     ).toDF("item", "att1", "att2")
   }
 
+  def getDfWithDecimalFractionalValues(sparkSession: SparkSession): DataFrame = {
+    import sparkSession.implicits._
+    Seq(
+      ("1", BigDecimal(1.0), BigDecimal(0.0)),
+      ("2", BigDecimal(2.0), BigDecimal(0.0)),
+      ("3", BigDecimal(3.0), BigDecimal(0.0)),
+      ("4", BigDecimal(4.0), BigDecimal(5.0)),
+      ("5", BigDecimal(5.0), BigDecimal(6.0)),
+      ("6", BigDecimal(6.0), BigDecimal(7.0))
+    ).toDF("item", "att1", "att2")
+  }
+
   def getDfWithNumericFractionalValuesForKLL(sparkSession: SparkSession): DataFrame = {
     import sparkSession.implicits._
     Seq(
