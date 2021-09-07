@@ -23,7 +23,12 @@ import com.amazon.deequ.analyzers.KLLParameters
 import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
 import com.amazon.deequ.utils.FixtureSupport
 import org.apache.datasketches.frequencies.LongsSketch
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.linalg.DenseVector
+import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
 import org.apache.spark.mllib.feature.MrmrSelector
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.mllib.stat.{MultivariateStatisticalSummary, Statistics}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.XxHash64Function
 import org.apache.spark.sql.catalyst.expressions.aggregate.{FreqSketch, FrequentItemSketchHelpers, LongFreqSketchImpl}
@@ -41,6 +46,45 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
 
   "Approximate Mutual Information" should {
+    "calculate MRMR with fastmrmr oldschool" in
+      withSparkSession { sparkSession =>
+        // create test dataset
+        val nRows = 10000
+        val nVal = 5000
+        val nTargetBins = 100
+
+        var df = sparkSession.read.format("parquet")
+          .load(f"test-data/features_int_1k_$nVal.parquet")
+        df = df.withColumn("target",
+          functions.round(functions.rand(10) * lit(nTargetBins)))
+
+        println(df.rdd.getNumPartitions)
+        df.cache()
+        df.count()
+
+        val assembler = new VectorAssembler()
+          .setInputCols((1 to nVal).map(i => f"att$i").toArray)
+          .setOutputCol("features")
+
+        val output = assembler.transform(df)
+
+        val summary: MultivariateStatisticalSummary = Statistics.colStats(output.rdd
+          .getAs[DenseVector]("features"))
+        println(summary.mean)  // a dense vector containing the mean value for each column
+        println(summary.variance)  // column-wise variance
+        println(summary.numNonzeros)  // number of nonzeros in each column
+
+        val data = output.select(col("target").alias("label"), col("features"))
+          .rdd
+          .map(row => LabeledPoint(row.getAs[Double]("label"), DenseVectorMLLib.fromML(row
+            .getAs[DenseVector]("features"))))
+
+
+        val t0 = System.nanoTime
+        MrmrSelector.train(data, 1, 1)
+        val duration0 = (System.nanoTime - t0) / 1e9d
+        println(f"fastmrmr x $duration0")
+      }
 
     "calculate MRMR with fastmrmr" in
       withSparkSession { sparkSession =>
@@ -55,7 +99,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         // create test dataset
         val nBuckets = 255 // current fastmrmr impl allows max 255 (byte-size)
-        val nSelectFeatures = 1
+        val nSelectFeatures = -1
         val nRowLimit = 1000000
         val normalizedVarianceThreshold = 0.01
         val distinctnessThresholdIntegral = 0.9
@@ -72,14 +116,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tLoadingAndStats = System.nanoTime
 
-/*
+
         val targetInp = "Survived"
         var df = sparkSession.read.format("csv")
           .option("inferSchema", "true")
           .option("header", "true")
           .load("test-data/titanic.csv")
           .withColumnRenamed(targetInp, target)
-*/
+
 
 /*
         val schema = StructType(
@@ -237,14 +281,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           functions.round(functions.rand(10) * lit(1)))
         df.show()
 */
-
-        val nVal = 1000
+/*
+        val nVal = 5000
         val nTargetBins = 100
         var df = sparkSession.read.format("parquet")
-          .load(f"test-data/features_int_10k_$nVal.parquet")
+          .load(f"test-data/features_int_1k_$nVal.parquet")
         df = df.withColumn(target,
           functions.round(functions.rand(10) * lit(nTargetBins-1)))
-
+*/
         df.limit(nRowLimit)
 
         val nPart = df.rdd.getNumPartitions
@@ -279,7 +323,9 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         df = df.select(castSelects: _*)
         df.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
+
         // stats for feature selection and binning (a bit faster than deequ profiling (5-50%)
+        // but still slow. Should be changed to rdd-based aggregations!!!
         val numStatsAggs = df.schema.filter(c => numericTypes.contains(c.dataType))
           .flatMap(c => {
             val withoutNullAndNan = when(!col(c.name).isNull && !col(c.name).isNaN, col(c.name))
