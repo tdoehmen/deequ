@@ -19,20 +19,21 @@ package com.amazon.deequ.featureselection
 import java.util.Calendar
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.KLLParameters
+import com.amazon.deequ.analyzers.{ApproxCountDistinct, KLLParameters}
 import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
 import com.amazon.deequ.utils.FixtureSupport
 import org.apache.datasketches.frequencies.LongsSketch
 import org.apache.spark.ml.feature.VectorAssembler
 import org.apache.spark.ml.linalg.DenseVector
 import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
-import org.apache.spark.mllib.feature.MrmrSelector
+import org.apache.spark.mllib.feature.{MrmrSelector, StandardScalerModel}
 import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.stat.{MultivariateStatisticalSummary, Statistics}
+import org.apache.spark.mllib.stat.{ExtendedStatsConfig, ExtendedStatsHelper, MultivariateOnlineSummarizer, MultivariateStatisticalSummary, Statistics}
+import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.XxHash64Function
-import org.apache.spark.sql.catalyst.expressions.aggregate.{FreqSketch, FrequentItemSketchHelpers, LongFreqSketchImpl}
-import org.apache.spark.sql.functions.{min, _}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{FreqSketch, FrequentItemSketchHelpers, LongFreqSketchImpl, StatefulHyperloglogPlus}
+import org.apache.spark.sql.functions.{count, mean, min, _}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, functions}
 import org.apache.spark.storage.StorageLevel
@@ -46,6 +47,270 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
   with FixtureSupport {
 
   "Approximate Mutual Information" should {
+
+    "stats runtime" in
+      withSparkSession { sparkSession =>
+
+        val nRows = 10000
+        val nTargetBins = 100
+        val nVal = 1000
+        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_10k_$nVal" +
+          f".parquet")
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        df.count()
+
+        val numericColumns = df.schema.filter( kv => {
+          kv.dataType match {
+            case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType |
+                 DoubleType | TimestampType | DateType | DecimalType() => true
+            case _ =>
+              false
+          }
+        })
+
+        val otherColumns = df.schema.filterNot( kv => {
+          kv.dataType match {
+            case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType |
+                 DoubleType | TimestampType | DateType | DecimalType() => true
+            case _ =>
+              false
+          }
+        })
+
+
+        val hashs = otherColumns.map( kv => {
+          xxhash64(col(kv.name)).alias(kv.name)
+        })
+
+        val doubles = numericColumns.map(kv => {
+          if (kv.dataType == FloatType) {
+            when(col(kv.name).isin(Float.PositiveInfinity, Float.NegativeInfinity),
+              Float.NaN).otherwise(col(kv.name)).cast(DoubleType).alias(kv.name)
+          } else if (kv.dataType == DoubleType) {
+            when(col(kv.name).isin(Double.PositiveInfinity, Double.NegativeInfinity),
+              Double.NaN).otherwise(col(kv.name)).alias(kv.name)
+          } else if (kv.dataType == DateType) {
+            to_timestamp(col(kv.name)).cast(DoubleType)
+          } else if (kv.dataType == CalendarIntervalType) {
+            to_timestamp(col(kv.name)).cast(DoubleType)
+          } else {
+            col(kv.name).cast(DoubleType).alias(kv.name)
+          }
+        })
+
+        val tc = System.nanoTime
+        val dfc = df.select(hashs ++ doubles: _*).na.fill(0.0, numericColumns.map(kv => kv.name))
+        dfc.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        dfc.count()
+        val durationc = (System.nanoTime - tc) / 1e9d
+        println(f"data conversion x $durationc")
+
+
+        val tv = System.nanoTime
+
+        val assembler = new VectorAssembler().setHandleInvalid("skip")
+          .setInputCols(dfc.schema.map(kv => kv.name).toArray)
+          .setOutputCol("features")
+        val output = assembler.transform(dfc)
+        val data = output.select("features")
+          .rdd
+          .map(row => org.apache.spark.mllib.linalg.Vectors.fromML(
+            row.getAs[org.apache.spark.ml.linalg.DenseVector]("features")))
+
+        val durationv = (System.nanoTime - tv) / 1e9d
+        println(f"vectorization x $durationv")
+
+
+        val tvs = System.nanoTime
+        val summary = ExtendedStatsHelper.computeColumnSummaryStatistics(data, dfc.schema.length,
+          ExtendedStatsConfig(frequentItems = false))
+        val durationvs = (System.nanoTime - tvs) / 1e9d
+        println(f"stats vectorized x $durationvs")
+        dfc.unpersist()
+
+        println(summary.approxDistinct.get)
+        //println(summary.freqItems.get(0).mkString("Array(", ", ", ")"))
+
+        // stats for feature selection and binning (a bit faster than deequ profiling (5-50%)
+        // but still slow. Should be changed to rdd-based aggregations!!!
+        val numStatsAggs = numericColumns.flatMap(c => {
+            val withoutNullAndNan = when(!col(c.name).isNull && !col(c.name).isNaN, col(c.name))
+            Seq(
+              min(withoutNullAndNan).cast(DoubleType).alias(c.name+"_min"),
+              max(withoutNullAndNan).cast(DoubleType).alias(c.name+"_max"),
+              approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+              count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
+                .alias(c.name + "_count_null"),
+              stddev(withoutNullAndNan).alias(c.name+"_stddev"),
+              mean(withoutNullAndNan).alias(c.name+"_mean"))
+          })
+        val otherStatsAggs = otherColumns
+          .flatMap (c => Seq(
+            approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+            count(when(col(c.name).isNull, lit(1))).alias(c.name + "_count_null")))
+        val generalCount = Seq(count(lit(1)).alias("_count"))
+
+        val tdf = System.nanoTime
+        val stats = df.select(numStatsAggs ++ otherStatsAggs ++
+          generalCount: _*).first()
+        val durationdf = (System.nanoTime - tdf) / 1e9d
+        println(f"stats dataframe x $durationdf")
+
+
+      }
+
+    "rdd-based statistics and data prep2" in
+      withSparkSession { sparkSession =>
+        import sparkSession.implicits._
+        var df =
+          Seq(
+            (BigDecimal(1.0), BigDecimal(0.0)),
+            (BigDecimal(2.0), BigDecimal(0.0)),
+            (BigDecimal(3.0), BigDecimal(0.0)),
+            (BigDecimal(4.0), BigDecimal(5.0)),
+            (BigDecimal(5.0), BigDecimal(6.0)),
+            (BigDecimal(6.0), BigDecimal(7.0))
+          ).toDF("att1", "att2")
+
+        val result = ApproxCountDistinct("att1").calculate(df).value
+        println(result)
+        val types = df.schema.zipWithIndex.map(kv => kv._2 -> kv._1.dataType).toMap
+        val columnarData: RDD[(Long, Array[Long])] = df.rdd.zipWithIndex().map(
+          row => {
+            val values = row._1
+            val r = row._2
+            val outputs = (0 to values.length).map(i => {
+              println(types(i))
+              println(values.get(i).getClass)
+              XxHash64Function.hash(values.get(i), types(i), 42L)
+            }).toArray
+            (r, outputs)
+          }
+        )
+
+        println(columnarData.collect())
+
+      }
+
+
+    "df-based hashing" in
+      withSparkSession { sparkSession =>
+
+        val nRows = 10000
+        val nTargetBins = 100
+        val nVal = 1000
+        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_10k_$nVal" +
+          f".parquet")
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        df.count()
+
+        val hash = df.schema.map( kv => {
+          xxhash64(col(kv.name)).alias(kv.name)
+        })
+
+        val t0 = System.nanoTime
+        val dfh = df.select(hash: _*)
+        dfh.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        val duration0 = (System.nanoTime - t0) / 1e9d
+        println(f"hashing x $duration0")
+
+        val doubles = df.schema.filter( kv => {
+          kv.dataType match {
+            case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType |
+                DoubleType | TimestampType | DateType | DecimalType() => true
+            case _ =>
+              false
+          }
+        }).map(kv => {
+          if (kv.dataType == FloatType) {
+            when(col(kv.name).isin(Float.PositiveInfinity, Float.NegativeInfinity),
+              Float.NaN).otherwise(col(kv.name)).cast(DoubleType).alias(kv.name)
+          } else if (kv.dataType == DoubleType) {
+            when(col(kv.name).isin(Double.PositiveInfinity, Double.NegativeInfinity),
+              Double.NaN).otherwise(col(kv.name)).alias(kv.name)
+          } else if (kv.dataType == DateType) {
+            to_timestamp(col(kv.name)).cast(DoubleType)
+          } else if (kv.dataType == CalendarIntervalType) {
+            to_timestamp(col(kv.name)).cast(DoubleType)
+          } else {
+            col(kv.name).cast(DoubleType).alias(kv.name)
+          }
+        })
+
+        val t0d = System.nanoTime
+        var dfd = df.select(doubles: _*)
+        dfd = dfd.na.fill(0.0, dfd.schema.map(kv => kv.name))
+        val assembler = new VectorAssembler().setHandleInvalid("skip")
+          .setInputCols(dfd.schema.map(kv => kv.name).toArray)
+          .setOutputCol("features")
+
+
+        val output = assembler.transform(dfd)
+        val data = output.select("features")
+          .rdd
+          .map(row => org.apache.spark.mllib.linalg.Vectors.fromML(
+            row.getAs[org.apache.spark.ml.linalg.DenseVector]("features")))
+
+        output.select("features").show()
+        val summary = ExtendedStatsHelper.computeColumnSummaryStatistics(data, dfd.schema.length)
+
+        /*val summary: MultivariateStatisticalSummary = Statistics.colStats(data)
+        println(summary.min)  // a dense vector containing the mean value for each column
+        println(summary.max)  // a dense vector containing the mean value for each column
+        println(summary.mean)  // a dense vector containing the mean value for each column
+        println(summary.variance)  // column-wise variance
+        println(summary.numNonzeros)  // number of nonzeros in each column*/
+
+        //dfd.summary("min", "max", "stddev").collect()
+        val duration0d= (System.nanoTime - t0d) / 1e9d
+        println(f"doubles x $duration0d")
+
+        println(summary.approxDistinct.get)
+        println(summary.freqItems.get(0).mkString("Array(", ", ", ")"))
+
+        val t0s = System.nanoTime
+        val scaler3 = new StandardScalerModel(org.apache.spark.mllib.linalg.Vectors.dense(summary
+          .variance.toArray.map(v=>Math.sqrt(v))),
+          summary.mean)
+        scaler3.transform(data).collect()
+          //.foreach(v => println(v.toArray.mkString("Array(", ", ",")")))
+        val duration0s= (System.nanoTime - t0s) / 1e9d
+        println(f"sclaing x $duration0s")
+      }
+
+    "rdd-based statistics and data prep" in
+      withSparkSession { sparkSession =>
+        import sparkSession.implicits._
+        var df =
+          Seq(
+            (BigDecimal(1.0), BigDecimal(0.0)),
+            (BigDecimal(2.0), BigDecimal(0.0)),
+            (BigDecimal(3.0), BigDecimal(0.0)),
+            (BigDecimal(4.0), BigDecimal(5.0)),
+            (BigDecimal(5.0), BigDecimal(6.0)),
+            (BigDecimal(6.0), BigDecimal(7.0))
+          ).toDF("att1", "att2")
+
+        val result = ApproxCountDistinct("att1").calculate(df).value
+        println(result)
+        val types = df.schema.zipWithIndex.map(kv => kv._2 -> kv._1.dataType).toMap
+        val columnarData: RDD[(Long, Array[Long])] = df.rdd.zipWithIndex().map(
+          row => {
+            val values = row._1
+            val r = row._2
+            val outputs = (0 to values.length).map(i => {
+              println(types(i))
+              println(values.get(i).getClass)
+              XxHash64Function.hash(values.get(i), types(i), 42L)
+            }).toArray
+            (r, outputs)
+          }
+        )
+
+        println(columnarData.collect())
+
+      }
+
     "calculate MRMR with fastmrmr oldschool" in
       withSparkSession { sparkSession =>
         // create test dataset
@@ -67,12 +332,6 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           .setOutputCol("features")
 
         val output = assembler.transform(df)
-
-        val summary: MultivariateStatisticalSummary = Statistics.colStats(output.rdd
-          .getAs[DenseVector]("features"))
-        println(summary.mean)  // a dense vector containing the mean value for each column
-        println(summary.variance)  // column-wise variance
-        println(summary.numNonzeros)  // number of nonzeros in each column
 
         val data = output.select(col("target").alias("label"), col("features"))
           .rdd
@@ -305,7 +564,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
          */
 
         // convert numerics to doubles, while cleaning up positive and negative infinity values
-        val castSelects = df.schema.map(c => {
+        val castSelects = df.schema.map(c => { //TODO: fix for Date and Decimal Types
           if (c.dataType == FloatType) {
             when(col(c.name).isin(Float.PositiveInfinity, Float.NegativeInfinity),
               Float.NaN).otherwise(col(c.name)).alias(c.name)
