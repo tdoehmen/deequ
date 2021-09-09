@@ -22,7 +22,14 @@ import org.apache.datasketches.hll.{HllSketch => jHllSketch, Union => HllUnion}
 import org.apache.datasketches.memory.Memory
 import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.stat.{ExtendedMultivariateStatistics, ExtendedStatsConfig}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.{XxHash64, XxHash64Function}
+import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType, StringType}
+import org.apache.spark.unsafe.types.UTF8String
+
+import scala.util.hashing.MurmurHash3.stringHash
 
 /**
  * MultivariateOnlineSummarizer implements [[MultivariateStatisticalSummary]] to compute the mean,
@@ -43,8 +50,9 @@ import org.apache.spark.rdd.RDD
  * see <a href="https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Reliability_weights">
  * Reliability weights (Wikipedia)</a>.
  */
-class ExtendedMultivariateOnlineSummarizer extends Serializable{
+class ExtendedMultivariateOnlineSummarizerRow extends Serializable{
 
+  var dataTypes: Map[Int,DataType] = _
   var configuration: ExtendedStatsConfig = _
   @transient
   var longsSketches: IndexedSeq[LongsSketch] = _
@@ -65,8 +73,10 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   var currMax: Array[Double] = _
   var currMin: Array[Double] = _
 
-  def this(vectorSize: Int, statsConfig: ExtendedStatsConfig) {
+  def this(vectorSize: Int, dataTypes: Map[Int,DataType], statsConfig: ExtendedStatsConfig) {
     this()
+
+    this.dataTypes = dataTypes
     configuration = statsConfig
     if (configuration.frequentItems) {
       longsSketches = (0 to vectorSize).map( i => new LongsSketch(statsConfig.freqItemSketchSize) )
@@ -82,10 +92,9 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * @param sample The sample in dense/sparse vector format to be added into this summarizer.
    * @return This MultivariateOnlineSummarizer object.
    */
-  @Since("1.1.0")
-  def add(sample: Vector): this.type = add(sample, 1.0)
+  def add(sample: Row): this.type = add(sample, 1.0)
 
-  private[spark] def add(instance: Vector, weight: Double): this.type = {
+  private[spark] def add(instance: Row, weight: Double): this.type = {
     require(weight >= 0.0, s"sample weight, ${weight} has to be >= 0.0")
     if (weight == 0.0) return this
 
@@ -114,15 +123,21 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
     val localNumNonzeros = nnz
     val localCurrMax = currMax
     val localCurrMin = currMin
-    instance.foreach { (index, value) =>
-      if (configuration.frequentItems) {
-        longsSketches(index).update(value.toLong)
-      }
-      if (configuration.approxDistinctness) {
-        hllSketches(index).update(value)
-      }
+    (0 until n).foreach { index =>
+      if (!instance.isNullAt(index)) {
+        val value = dataTypes(index) match {
+          case DoubleType => instance.getDouble(index)
+          case IntegerType => instance.getInt(index).toDouble
+          case StringType => stringHash(instance.getString(index), 42).toDouble
+        }
 
-      if (value != 0) {
+        if (configuration.frequentItems) {
+          longsSketches(index).update(value.toLong)
+        }
+        if (configuration.approxDistinctness) {
+          hllSketches(index).update(value)
+        }
+
         if (localCurrMax(index) < value) {
           localCurrMax(index) = value
         }
@@ -155,7 +170,8 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * @param other The other MultivariateOnlineSummarizer to be merged.
    * @return This MultivariateOnlineSummarizer object.
    */
-  def merge(other: ExtendedMultivariateOnlineSummarizer): ExtendedMultivariateOnlineSummarizer = {
+  def merge(other: ExtendedMultivariateOnlineSummarizerRow): ExtendedMultivariateOnlineSummarizerRow
+  = {
     if (totalWeightSum != 0.0 && other.totalWeightSum != 0.0) {
       require(n == other.n, s"Dimensions mismatch when merging with another summarizer. " +
         s"Expecting ${n} but got ${other.n}.")
@@ -386,13 +402,32 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
 
 }
 
-object ExtendedStatsHelper {
+case class ExtendedMultivariateStatistics(mean: Vector,
+                                          variance: Vector,
+                                          count: Long,
+                                          weightSum: Double,
+                                          numNonzeros: Vector,
+                                          max: Vector,
+                                          min: Vector,
+                                          normL2: Vector,
+                                          normL1: Vector,
+                                          approxDistinct: Option[Vector],
+                                          freqItems: Option[IndexedSeq[Map[Long, Byte]]]) extends
+  Serializable
 
-  def partitionStats(vectorSize: Int, statsConfig: ExtendedStatsConfig)
-  (rows: Iterator[Vector])
-  : Iterator[ExtendedMultivariateOnlineSummarizer] = {
+case class ExtendedStatsConfig(approxDistinctness: Boolean = true,
+                               frequentItems: Boolean = true, maxFreqItems: Int = 100,
+                               freqItemSketchSize: Int = 1024)
 
-    val summarizer = new ExtendedMultivariateOnlineSummarizer(vectorSize, statsConfig)
+
+object ExtendedStatsHelperRow {
+
+  def partitionStats(vectorSize: Int, dataTypes: Map[Int,DataType],
+                     statsConfig: ExtendedStatsConfig)
+  (rows: Iterator[Row])
+  : Iterator[ExtendedMultivariateOnlineSummarizerRow] = {
+
+    val summarizer = new ExtendedMultivariateOnlineSummarizerRow(vectorSize, dataTypes, statsConfig)
 
     while (rows.hasNext) {
       val instance = rows.next()
@@ -402,10 +437,11 @@ object ExtendedStatsHelper {
     Iterator.single(summarizer.toSerializable())
   }
 
-  def computeColumnSummaryStatistics(rows: RDD[Vector], rowSize: Int,
+  def computeColumnSummaryStatistics(rows: RDD[Row], rowSize: Int,
+                                     dataTypes: Map[Int,DataType],
                                      statsConfig: ExtendedStatsConfig = ExtendedStatsConfig())
   : ExtendedMultivariateStatistics = {
-    val summaryStatsPartition = partitionStats(rowSize, statsConfig) _
+    val summaryStatsPartition = partitionStats(rowSize, dataTypes, statsConfig) _
     val finalSummarizer =
       rows
         .mapPartitions(summaryStatsPartition, preservesPartitioning = true)

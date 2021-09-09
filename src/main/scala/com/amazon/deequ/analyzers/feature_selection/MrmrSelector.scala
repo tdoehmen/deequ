@@ -184,6 +184,8 @@ object MrmrSelector {
              nToSelect: Int = -1,
              nAllFeatures: Int,
              indexToFeatures: Map[Int, String]) = {
+    data.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
     val nSelect = if(nToSelect < 0 || nToSelect > nAllFeatures-1) nAllFeatures-1 else nToSelect
     val selected = new MrmrSelector().runColumnar(data, nSelect, nAllFeatures)
 

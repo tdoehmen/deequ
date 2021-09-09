@@ -19,6 +19,7 @@ package com.amazon.deequ.featureselection
 import java.util.Calendar
 
 import com.amazon.deequ.SparkContextSpec
+import com.amazon.deequ.analyzers.feature_selection.{FeatureSelectionConfig, FeatureSelectionHelper}
 import com.amazon.deequ.analyzers.{ApproxCountDistinct, KLLParameters}
 import com.amazon.deequ.profiles.{ColumnProfiler, ColumnProfiles}
 import com.amazon.deequ.utils.FixtureSupport
@@ -28,7 +29,7 @@ import org.apache.spark.ml.linalg.DenseVector
 import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
 import org.apache.spark.mllib.feature.{MrmrSelector, StandardScalerModel}
 import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.stat.{ExtendedStatsConfig, ExtendedStatsHelper, MultivariateOnlineSummarizer, MultivariateStatisticalSummary, Statistics}
+import org.apache.spark.mllib.stat.{ExtendedStatsConfig, ExtendedStatsHelper, ExtendedStatsHelperRow, MultivariateOnlineSummarizer, MultivariateStatisticalSummary, Statistics}
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions.XxHash64Function
@@ -48,13 +49,46 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
   "Approximate Mutual Information" should {
 
-    "stats runtime" in
+    "stats runtime rdd[row]" in
+      withSparkSession { sparkSession =>
+
+        val tc = System.nanoTime
+
+        val df = sparkSession.read.format("csv")
+          .option("inferSchema", "true")
+          .option("header", "true")
+          .load("test-data/titanic.csv")
+        /*
+        val nRows = 100000
+        val nTargetBins = 100
+        val nVal = 5000
+        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_1k_$nVal" +
+          f".parquet")
+        df = df.withColumn("target", functions.round(functions.rand(10) * lit(nTargetBins)))
+         */
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        df.count()
+
+        val durationc = (System.nanoTime - tc) / 1e9d
+        println(f"read data x $durationc")
+
+        val tf = System.nanoTime
+
+        val fs = new FeatureSelectionHelper(df.schema, FeatureSelectionConfig(target="Survived"))
+        fs.runFeatureSelection(df)
+
+        val durationf = (System.nanoTime - tf) / 1e9d
+        println(f"feature selection x $durationf")
+
+      }
+
+    "stats runtime rdd[vector]" in
       withSparkSession { sparkSession =>
 
         val nRows = 100000
         val nTargetBins = 100
-        val nVal = 1000
-        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_100k_$nVal" +
+        val nVal = 5000
+        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_10k_$nVal" +
           f".parquet")
         df.persist(StorageLevel.MEMORY_AND_DISK_SER)
         df.count()
@@ -90,11 +124,11 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             when(col(kv.name).isin(Double.PositiveInfinity, Double.NegativeInfinity),
               Double.NaN).otherwise(col(kv.name)).alias(kv.name)
           } else if (kv.dataType == DateType) {
-            to_timestamp(col(kv.name)).cast(DoubleType)
-          } else if (kv.dataType == CalendarIntervalType) {
-            to_timestamp(col(kv.name)).cast(DoubleType)
-          } else {
+            to_timestamp(col(kv.name)).cast(DoubleType).alias(kv.name)
+          } else if (kv.dataType == TimestampType) {
             col(kv.name).cast(DoubleType).alias(kv.name)
+          } else {
+            col(kv.name)
           }
         })
 
