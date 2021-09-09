@@ -51,10 +51,10 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
     "stats runtime" in
       withSparkSession { sparkSession =>
 
-        val nRows = 10000
+        val nRows = 100000
         val nTargetBins = 100
         val nVal = 1000
-        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_10k_$nVal" +
+        val df = sparkSession.read.format("parquet").load(f"test-data/features_int_100k_$nVal" +
           f".parquet")
         df.persist(StorageLevel.MEMORY_AND_DISK_SER)
         df.count()

@@ -18,7 +18,7 @@
 package org.apache.spark.mllib.stat
 
 import org.apache.datasketches.frequencies.{ErrorType, LongsSketch}
-import org.apache.datasketches.hll.{HllSketch => jHllSketch}
+import org.apache.datasketches.hll.{HllSketch => jHllSketch, Union => HllUnion}
 import org.apache.datasketches.memory.Memory
 import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
@@ -199,6 +199,18 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       nnz = other.nnz.clone()
       currMax = other.currMax.clone()
       currMin = other.currMin.clone()
+    }
+    if (configuration.frequentItems) {
+      longsSketches.zipWithIndex.foreach( kv =>
+        kv._1.merge(other.longsSketches(kv._2)) )
+    }
+    if (configuration.approxDistinctness) {
+      hllSketches = hllSketches.zipWithIndex.map( kv => {
+        val union = new HllUnion()
+        union.update(kv._1)
+        union.update(other.hllSketches(kv._2))
+        union.getResult
+      })
     }
     this
   }
