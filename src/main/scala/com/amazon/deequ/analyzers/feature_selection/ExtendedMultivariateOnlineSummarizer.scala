@@ -20,15 +20,10 @@ package org.apache.spark.mllib.stat
 import org.apache.datasketches.frequencies.{ErrorType, LongsSketch}
 import org.apache.datasketches.hll.{HllSketch => jHllSketch, Union => HllUnion}
 import org.apache.datasketches.memory.Memory
-import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.expressions.{XxHash64, XxHash64Function}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.UTF8String
-
-import scala.util.hashing.MurmurHash3
 
 /**
  * MultivariateOnlineSummarizer implements [[MultivariateStatisticalSummary]] to compute the mean,
@@ -59,6 +54,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   @transient
   var hllSketches: IndexedSeq[jHllSketch] = _
   var hllSketchesBin: IndexedSeq[Array[Byte]] = _
+  // TODO: add kll sketches aka QuantileNonSample...
   var n = 0
   var currMean: Array[Double] = _
   var currM2n: Array[Double] = _
@@ -458,14 +454,16 @@ object NumerizationHelper {
         instance.getDate(index).getTime
       }
       case StringType => {
+        // TODO: use 64 bit hash to reduce likelihood of hash collisions
         //XxHash64Function.hash(UTF8String.fromString(instance.getString(index)),
         //  StringType, 42L).toDouble
         //MurmurHash3.stringHash(instance.getString(index), 42)
         instance.getString(index).hashCode
       }
       case _ => {
-        instance.get(index).hashCode()
+        // TODO: use 64 bit hash to reduce likelihood of hash collisions
         //XxHash64Function.hash(instance.get(index), dataTypes(index), 42L).toDouble
+        instance.get(index).hashCode()
       }
     }
   }

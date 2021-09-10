@@ -17,15 +17,14 @@
 
 package org.apache.spark.mllib.feature
 
-import org.apache.spark.SparkContext._
-import org.apache.spark.rdd.RDD
-import org.apache.spark.HashPartitioner
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.feature.{InfoTheory => IT}
-import org.apache.spark.storage.StorageLevel
-import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector}
-import org.apache.spark.annotation.Experimental
 import org.apache.spark.SparkException
+import org.apache.spark.mllib.feature.{InfoTheory => IT}
+import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector}
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.rdd.RDD
+import org.apache.spark.storage.StorageLevel
+
+import scala.collection.immutable.ListMap
 
 /**
  * Train a info-theory feature selection model according to a criterion.
@@ -49,7 +48,8 @@ class MrmrSelector protected[feature] extends Serializable {
   private[feature] def selectFeatures(
                                        data: RDD[(Long, Byte)],
                                        nToSelect: Int,
-                                       nFeatures: Int) = {
+                                       nFeatures: Int,
+                                       verbose: Boolean) = {
 
     val label = nFeatures - 1
     val nInstances = data.count() / nFeatures
@@ -62,13 +62,14 @@ class MrmrSelector protected[feature] extends Serializable {
       data, 0 until label, label, nInstances, nFeatures, counterByKey)
     var pool = MiAndCmi.map{case (x, mi) => (x, new MrmrCriterion(mi))}
       .collectAsMap()
-    // Print most relevant features
-    // Print most relevant features
-    val strRels = MiAndCmi.collect().sortBy(-_._2)
-      .take(nToSelect)
-      .map({case (f, mi) => (f + 1) + "\t" + "%.4f" format mi})
-      .mkString("\n")
-    println("\n*** MaxRel features ***\nFeature\tScore\n" + strRels)
+    if (verbose) {
+      // Print most relevant features
+      val strRels = MiAndCmi.collect().sortBy(-_._2)
+        .take(nToSelect)
+        .map({case (f, mi) => (f + 1) + "\t" + "%.4f" format mi})
+        .mkString("\n")
+      println("\n*** MaxRel features ***\nFeature\tScore\n" + strRels)
+    }
     // get maximum and select it
     val firstMax = pool.maxBy(_._2.score)
     var selected = Seq(F(firstMax._1, firstMax._2.score))
@@ -115,7 +116,8 @@ class MrmrSelector protected[feature] extends Serializable {
       val condition = (value: Double) => value <= Byte.MaxValue &&
         value >= Byte.MinValue && value % 1 == 0.0
       if (!values.forall(condition(_)) || !condition(l)) {
-        throw new SparkException(s"Info-Theoretic Framework requires positive values in range [0, 255]")
+        throw new SparkException(s"Info-Theoretic Framework requires " +
+          s"positive values in range [0, 255]")
       }
     }
 
@@ -137,7 +139,8 @@ class MrmrSelector protected[feature] extends Serializable {
     val selected = runColumnar(columnarData, nToSelect, nAllFeatures)
 
     // Print best features according to the mRMR measure
-    val out = selected.map{case (feat, rel) => (feat + 1) + "\t" + "%.4f".format(rel)}.mkString("\n")
+    val out = selected.map{case (feat, rel) => (feat + 1) + "\t" + "%.4f".format(rel)}
+      .mkString("\n")
     println("\n*** mRMR features ***\nFeature\tScore\n" + out)
     // Features must be sorted
   }
@@ -145,10 +148,12 @@ class MrmrSelector protected[feature] extends Serializable {
   private[feature] def runColumnar(
                             columnarData: RDD[(Long, Byte)],
                             nToSelect: Int,
-                            nAllFeatures: Int): Seq[(Int, Double)] = {
+                            nAllFeatures: Int,
+                            verbose: Boolean = true): Seq[(Int, Double)] = {
+    columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
     require(nToSelect < nAllFeatures)
-    val selected = selectFeatures(columnarData, nToSelect, nAllFeatures)
+    val selected = selectFeatures(columnarData, nToSelect, nAllFeatures, verbose)
 
     columnarData.unpersist()
 
@@ -179,19 +184,26 @@ object MrmrSelector {
     new MrmrSelector().run(data, nToSelect, numPartitions)
   }
 
-  def trainColumnar(
+  def selectFeatures(
              data: RDD[(Long, Byte)],
              nToSelect: Int = -1,
              nAllFeatures: Int,
-             indexToFeatures: Map[Int, String]) = {
+             indexToFeatures: Map[Int, String],
+             verbose: Boolean = false): Map[String, Double] = {
+    // if nToSelect -1 or larger than nAllFeatures, clamp to nAllFeatures-1
     val nSelect = if(nToSelect < 0 || nToSelect > nAllFeatures-1) nAllFeatures-1 else nToSelect
-    val selected = new MrmrSelector().runColumnar(data, nSelect, nAllFeatures)
 
-    // Print best features according to the mRMR measure
-    val out = selected.map { case (feat, rel) => (indexToFeatures(feat)) + "\t" + "%.4f"
-      .format(rel) }.mkString("\n")
-    println("\n*** mRMR features ***\nFeature\tScore\n" + out)
-    // Features must be sorted
+    val selected = new MrmrSelector().runColumnar(data, nSelect, nAllFeatures, verbose)
+
+    if (verbose) {
+      // Print best features according to the mRMR measure
+      val out = selected.map { case (feat, rel) => (indexToFeatures(feat)) + "\t" + "%.4f"
+        .format(rel) }.mkString("\n")
+      println("\n*** mRMR features ***\nFeature\tScore\n" + out)
+    }
+
+    // Return best features and mRMR measure
+    ListMap(selected.map( kv => indexToFeatures(kv._1) -> kv._2 ): _*)
   }
 
 }

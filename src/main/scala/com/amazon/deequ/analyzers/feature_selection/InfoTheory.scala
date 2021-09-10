@@ -17,17 +17,8 @@
 
 package org.apache.spark.mllib.feature
 
-import breeze.linalg._
-import breeze.numerics._
-import breeze.linalg.{DenseVector => BDV, SparseVector => BSV, Vector => BV, DenseMatrix => BDM}
-
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, _}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.SparkContext._
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.broadcast.Broadcast
-import org.apache.spark.mllib.linalg.DenseVector
-import org.apache.spark.mllib.linalg.SparseVector
-import org.apache.spark.SparkException
 
 /**
  * Information Theory function and distributed primitives.
