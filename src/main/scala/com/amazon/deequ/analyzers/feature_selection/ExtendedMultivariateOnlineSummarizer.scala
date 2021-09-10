@@ -23,6 +23,12 @@ import org.apache.datasketches.memory.Memory
 import org.apache.spark.annotation.Since
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.catalyst.expressions.{XxHash64, XxHash64Function}
+import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
+
+import scala.util.hashing.MurmurHash3
 
 /**
  * MultivariateOnlineSummarizer implements [[MultivariateStatisticalSummary]] to compute the mean,
@@ -45,6 +51,7 @@ import org.apache.spark.rdd.RDD
  */
 class ExtendedMultivariateOnlineSummarizer extends Serializable{
 
+  var dataTypes: Map[Int,DataType] = _
   var configuration: ExtendedStatsConfig = _
   @transient
   var longsSketches: IndexedSeq[LongsSketch] = _
@@ -65,8 +72,10 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   var currMax: Array[Double] = _
   var currMin: Array[Double] = _
 
-  def this(vectorSize: Int, statsConfig: ExtendedStatsConfig) {
+  def this(vectorSize: Int, dataTypes: Map[Int,DataType], statsConfig: ExtendedStatsConfig) {
     this()
+
+    this.dataTypes = dataTypes
     configuration = statsConfig
     if (configuration.frequentItems) {
       longsSketches = (0 to vectorSize).map( i => new LongsSketch(statsConfig.freqItemSketchSize) )
@@ -82,10 +91,9 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * @param sample The sample in dense/sparse vector format to be added into this summarizer.
    * @return This MultivariateOnlineSummarizer object.
    */
-  @Since("1.1.0")
-  def add(sample: Vector): this.type = add(sample, 1.0)
+  def add(sample: Row): this.type = add(sample, 1.0)
 
-  private[spark] def add(instance: Vector, weight: Double): this.type = {
+  private[spark] def add(instance: Row, weight: Double): this.type = {
     require(weight >= 0.0, s"sample weight, ${weight} has to be >= 0.0")
     if (weight == 0.0) return this
 
@@ -114,31 +122,36 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
     val localNumNonzeros = nnz
     val localCurrMax = currMax
     val localCurrMin = currMin
-    instance.foreach { (index, value) =>
-      if (configuration.frequentItems) {
-        longsSketches(index).update(value.toLong)
-      }
-      if (configuration.approxDistinctness) {
-        hllSketches(index).update(value)
-      }
+    val nans = if (configuration.treatInfinityAsNaN) Seq(Double.NegativeInfinity,
+      Double.PositiveInfinity, Double.NaN) else Seq(Double.NaN)
+    (0 until n).foreach { index =>
+      if (!instance.isNullAt(index)) {
+        val value = NumerizationHelper.numerize(instance, index, dataTypes(index))
+        if (!nans.contains(value)) {
+          if (configuration.frequentItems) {
+            longsSketches(index).update(value.toLong)
+          }
+          if (configuration.approxDistinctness) {
+            hllSketches(index).update(value)
+          }
 
-      if (value != 0) {
-        if (localCurrMax(index) < value) {
-          localCurrMax(index) = value
+          if (localCurrMax(index) < value) {
+            localCurrMax(index) = value
+          }
+          if (localCurrMin(index) > value) {
+            localCurrMin(index) = value
+          }
+
+          val prevMean = localCurrMean(index)
+          val diff = value - prevMean
+          localCurrMean(index) = prevMean + weight * diff / (localWeightSum(index) + weight)
+          localCurrM2n(index) += weight * (value - localCurrMean(index)) * diff
+          localCurrM2(index) += weight * value * value
+          localCurrL1(index) += weight * math.abs(value)
+
+          localWeightSum(index) += weight
+          localNumNonzeros(index) += 1
         }
-        if (localCurrMin(index) > value) {
-          localCurrMin(index) = value
-        }
-
-        val prevMean = localCurrMean(index)
-        val diff = value - prevMean
-        localCurrMean(index) = prevMean + weight * diff / (localWeightSum(index) + weight)
-        localCurrM2n(index) += weight * (value - localCurrMean(index)) * diff
-        localCurrM2(index) += weight * value * value
-        localCurrL1(index) += weight * math.abs(value)
-
-        localWeightSum(index) += weight
-        localNumNonzeros(index) += 1
       }
     }
 
@@ -155,7 +168,8 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * @param other The other MultivariateOnlineSummarizer to be merged.
    * @return This MultivariateOnlineSummarizer object.
    */
-  def merge(other: ExtendedMultivariateOnlineSummarizer): ExtendedMultivariateOnlineSummarizer = {
+  def merge(other: ExtendedMultivariateOnlineSummarizer): ExtendedMultivariateOnlineSummarizer
+  = {
     if (totalWeightSum != 0.0 && other.totalWeightSum != 0.0) {
       require(n == other.n, s"Dimensions mismatch when merging with another summarizer. " +
         s"Expecting ${n} but got ${other.n}.")
@@ -285,11 +299,14 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   def max: Vector = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
+    /*
+    // we don't want nulls to count towards max-value
     var i = 0
     while (i < n) {
       if ((nnz(i) < totalCnt) && (currMax(i) < 0.0)) currMax(i) = 0.0
       i += 1
     }
+    */
     Vectors.dense(currMax)
   }
 
@@ -300,11 +317,14 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   def min: Vector = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
+    /*
+    // we don't want nulls to count towards min-value
     var i = 0
     while (i < n) {
       if ((nnz(i) < totalCnt) && (currMin(i) > 0.0)) currMin(i) = 0.0
       i += 1
     }
+    */
     Vectors.dense(currMin)
   }
 
@@ -361,7 +381,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       case true => Some(longsSketches.map( sketch => {
         val items = sketch.getFrequentItems(ErrorType.NO_FALSE_POSITIVES)
         val items_lookup = items.take(Math.min(items.length, configuration.maxFreqItems))
-          .zipWithIndex.map(kv => (kv._1.getItem, (kv._2+2).toByte)).toMap
+          .zipWithIndex.map(kv => (kv._1.getItem, kv._2)).toMap
         items_lookup
       }))
       case false => None
@@ -386,13 +406,79 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
 
 }
 
+case class ExtendedMultivariateStatistics(mean: Vector,
+                                          variance: Vector,
+                                          count: Long,
+                                          weightSum: Double,
+                                          numNonzeros: Vector,
+                                          max: Vector,
+                                          min: Vector,
+                                          normL2: Vector,
+                                          normL1: Vector,
+                                          approxDistinct: Option[Vector],
+                                          freqItems: Option[IndexedSeq[Map[Long, Int]]]) extends
+  Serializable
+
+case class ExtendedStatsConfig(approxDistinctness: Boolean = true,
+                               frequentItems: Boolean = true, maxFreqItems: Int = 253,
+                               freqItemSketchSize: Int = 1024,
+                               treatInfinityAsNaN: Boolean = true)
+
+object NumerizationHelper {
+  def numerize(instance: Row, index: Int, dataType: DataType): Double = {
+    dataType match {
+      case BooleanType => {
+        if (instance.getBoolean(index)) 1.0 else 0.0
+      }
+      case ByteType => {
+        instance.getByte(index)
+      }
+      case ShortType => {
+        instance.getShort(index)
+      }
+      case IntegerType => {
+        instance.getInt(index)
+      }
+      case LongType => {
+        instance.getLong(index)
+      }
+      case FloatType => {
+        instance.getFloat(index)
+      }
+      case DoubleType => {
+        instance.getDouble(index)
+      }
+      case DecimalType() => {
+        instance.getAs[java.math.BigDecimal](index).doubleValue()
+      }
+      case TimestampType => {
+        instance.getTimestamp(index).getTime
+      }
+      case DateType => {
+        instance.getDate(index).getTime
+      }
+      case StringType => {
+        //XxHash64Function.hash(UTF8String.fromString(instance.getString(index)),
+        //  StringType, 42L).toDouble
+        //MurmurHash3.stringHash(instance.getString(index), 42)
+        instance.getString(index).hashCode
+      }
+      case _ => {
+        instance.get(index).hashCode()
+        //XxHash64Function.hash(instance.get(index), dataTypes(index), 42L).toDouble
+      }
+    }
+  }
+}
+
 object ExtendedStatsHelper {
 
-  def partitionStats(vectorSize: Int, statsConfig: ExtendedStatsConfig)
-  (rows: Iterator[Vector])
+  def partitionStats(vectorSize: Int, dataTypes: Map[Int,DataType],
+                     statsConfig: ExtendedStatsConfig)
+  (rows: Iterator[Row])
   : Iterator[ExtendedMultivariateOnlineSummarizer] = {
 
-    val summarizer = new ExtendedMultivariateOnlineSummarizer(vectorSize, statsConfig)
+    val summarizer = new ExtendedMultivariateOnlineSummarizer(vectorSize, dataTypes, statsConfig)
 
     while (rows.hasNext) {
       val instance = rows.next()
@@ -402,10 +488,11 @@ object ExtendedStatsHelper {
     Iterator.single(summarizer.toSerializable())
   }
 
-  def computeColumnSummaryStatistics(rows: RDD[Vector], rowSize: Int,
+  def computeColumnSummaryStatistics(rows: RDD[Row], rowSize: Int,
+                                     dataTypes: Map[Int,DataType],
                                      statsConfig: ExtendedStatsConfig = ExtendedStatsConfig())
   : ExtendedMultivariateStatistics = {
-    val summaryStatsPartition = partitionStats(rowSize, statsConfig) _
+    val summaryStatsPartition = partitionStats(rowSize, dataTypes, statsConfig) _
     val finalSummarizer =
       rows
         .mapPartitions(summaryStatsPartition, preservesPartitioning = true)

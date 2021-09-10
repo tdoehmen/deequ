@@ -17,8 +17,9 @@
 package com.amazon.deequ.analyzers.feature_selection
 
 import org.apache.datasketches.frequencies.LongsSketch
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.mllib.feature.MrmrSelector
-import org.apache.spark.mllib.stat.{ExtendedMultivariateStatistics, ExtendedStatsConfig, ExtendedStatsHelperRow}
+import org.apache.spark.mllib.stat.{ExtendedMultivariateStatistics, ExtendedStatsConfig, ExtendedStatsHelper, NumerizationHelper}
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.types.{BooleanType, ByteType, DataType, DateType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructType, TimestampType}
 import org.apache.spark.rdd.RDD
@@ -44,12 +45,13 @@ case class FeatureSelectionConfig(target: String = "target",
 
 class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig =
   FeatureSelectionConfig()) extends Serializable {
+
   private val indexToType = schema.zipWithIndex.map(kv => kv._2 -> kv._1.dataType).toMap
   private val nameToIndex = schema.zipWithIndex.map(kv => kv._1.name -> kv._2).toMap
-  private val numericColumns = schema.filter( kv => {
+  private val nameToType = schema.map(kv => kv.name -> kv.dataType).toMap
+  private val fractionalColumns = schema.filter( kv => {
     kv.dataType match {
-      case BooleanType | ByteType | ShortType | IntegerType | LongType | FloatType |
-           DoubleType | TimestampType | DateType | DecimalType() => true
+      case FloatType | DoubleType | DecimalType() => true
       case _ =>
         false
     }
@@ -62,23 +64,36 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
         false
     }
   }).map(kv => kv.name).toSet
-  private val otherColumns = schema.names.filterNot( name => numericColumns.contains(name) ).toSet
 
   def runFeatureSelection(df: DataFrame): Unit ={
     val dfLimited = df.limit(config.nRowLimit)
     dfLimited.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-    val stats = ExtendedStatsHelperRow.computeColumnSummaryStatistics(dfLimited.rdd,
+    val tStart = System.nanoTime
+
+    val stats = ExtendedStatsHelper.computeColumnSummaryStatistics(dfLimited.rdd,
       schema.length,
       indexToType,
       ExtendedStatsConfig(maxFreqItems = config.nBuckets-2))
+
+    //println(stats.min.toArray.mkString(" "))
+    //println(stats.max.toArray.mkString(" "))
+    //println(stats.freqItems.get.map(seq => seq.mkString(", ")).mkString("\n"))
 
     val selectedColumns = preFilterColumns(stats)
 
     val subSelectedDf = dfLimited.select(selectedColumns.map(name => col(name)): _*)
 
+    //val sc = subSelectedDf.rdd.context
+    //val bStats = sc.broadcast(stats)
+
     val transformedColumns = transformColumns(subSelectedDf.rdd, selectedColumns, stats)
     dfLimited.unpersist()
+    transformedColumns.persist(StorageLevel.MEMORY_AND_DISK_SER)
+    transformedColumns.count()
+
+    val durationPreprocess = (System.nanoTime - tStart) / 1e9d
+    println(f"preprocess data x $durationPreprocess")
 
     val indexToFeatures = selectedColumns.zipWithIndex.map(kv => kv._2 -> kv._1).toMap
 
@@ -87,51 +102,6 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
                                selectedColumns.length,
                                indexToFeatures)
 
-  }
-
-  private def transformColumns(rdd: RDD[Row], selectedColumns: Array[String],
-                               stats: ExtendedMultivariateStatistics): RDD[(Long, Byte)] = {
-    val nAllFeatures = selectedColumns.length
-
-    val columnarData: RDD[(Long, Byte)] = rdd.zipWithIndex().flatMap ({ kv =>
-      val values = kv._1
-      val r = kv._2
-      val rindex = r * nAllFeatures
-      val inputs = for(i <- 0 until nAllFeatures) yield {
-        val name = selectedColumns(i)
-        val statsIndex = nameToIndex(name)
-        val index = rindex + i
-        var byte = 0.toByte
-        if (values.isNullAt(i)) {
-          byte = 0.toByte
-        } else if (integralColumns.contains(name)) {
-          if (stats.approxDistinct.get(statsIndex) > config.discretizationTreshold) {
-            val rawValue = values.getInt(i)
-            val mn = stats.min(statsIndex)
-            val range = stats.max(statsIndex) - stats.min(statsIndex)
-            val scaled = ((rawValue - mn) / range) * (config.nBuckets - 1) + 1
-            byte = scaled.toByte
-          } else {
-            val hash = values.getInt(i).toDouble.toLong
-            val lookup = stats.freqItems.get(statsIndex)
-            byte = lookup.getOrElse(hash, 1.toByte)
-          }
-        } else if(numericColumns.contains(name)) {
-          val rawValue = values.getDouble(i)
-          val mn = stats.min(statsIndex)
-          val range = stats.max(statsIndex) - stats.min(statsIndex)
-          val scaled = ((rawValue - mn) / range) * (config.nBuckets - 1) + 1
-          byte = scaled.toByte
-        } else {
-          val hash = stringHash(values.getString(i), 42)
-          val lookup = stats.freqItems.get(statsIndex)
-          byte = lookup.getOrElse(hash, 1.toByte)
-        }
-        (index, byte)
-      }
-      inputs
-    })
-    columnarData
   }
 
   // feature pre-filter (except target)
@@ -153,7 +123,7 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
       var highDistinctness = false
       var noFrequentItems = false
       var normVariance = 0.0
-      if (numericColumns.contains(name)) {
+      if (fractionalColumns.contains(name) || integralColumns.contains(name)) {
         val stddev = stats.variance(index) * stats.variance(index)
         val mean = stats.mean(index)
         val meanSafe = if (mean == 0) 1e-100 else mean
@@ -180,7 +150,7 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
           config.distinctnessThresholdIntegral }"
         if (highDistinctness) reasons += f"distinctness $distinctness > ${
           config.distinctnessThresholdOther }"
-        if (noFrequentItems) reasons += f"less than two frequent items"
+        if (noFrequentItems) reasons += f"less than two most frequent items"
         println(f"Column $name was pre-filtered, because ${reasons.mkString(", ")}")
       }
 
@@ -189,5 +159,47 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
 
     selectedColumns
   }
+
+
+  private def transformColumns(rdd: RDD[Row], selectedColumns: Array[String],
+                               stats: ExtendedMultivariateStatistics): RDD[(Long, Byte)]
+  = {
+    val nAllFeatures = selectedColumns.length
+
+    val columnarData: RDD[(Long, Byte)] = rdd.zipWithIndex().flatMap ({ kv =>
+      val values = kv._1
+      val r = kv._2
+      val rindex = r * nAllFeatures
+      val inputs = for(i <- 0 until nAllFeatures) yield {
+        val name = selectedColumns(i)
+        val statsIndex = nameToIndex(name)
+        val index = rindex + i
+        var byte = 0.toByte
+        if (values.isNullAt(i)) {
+          byte = 0.toByte
+        } else {
+          val value = NumerizationHelper.numerize(values, i, nameToType(name))
+          if (Seq(Double.PositiveInfinity, Double.NegativeInfinity, Double.NaN).contains(value)) {
+            byte = 0.toByte
+          } else if(fractionalColumns.contains(name) || (integralColumns.contains(name) &&
+            stats.approxDistinct.get(statsIndex) > config.discretizationTreshold )) {
+            val rawValue = value
+            val mn = stats.min(statsIndex)
+            val range = stats.max(statsIndex) - stats.min(statsIndex)
+            val scaled = ((rawValue - mn) / range) * (config.nBuckets - 1) + 1
+            byte = scaled.toByte
+          } else {
+            val lookup = stats.freqItems.get(statsIndex)
+            // hash-lookups-> 0-253; miss: -1 => range (-1-253)+2 = 1-255 (leaves 0-index for nulls)
+            byte = (lookup.getOrElse(value.toLong, -1) + 2).toByte
+          }
+        }
+        (index, byte)
+      }
+      inputs
+    })
+    columnarData
+  }
+
 
 }
