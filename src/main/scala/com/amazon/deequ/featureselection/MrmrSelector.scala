@@ -117,6 +117,7 @@ class MrmrSelector protected extends Serializable {
       })
 
       // get maximum and save it
+      // TODO: takes lowest feature index if scores are equal
       val max = pool.maxBy(_._2.score)
       // select the best feature and remove from the whole set of features
       selected = F(max._1, max._2.score) +: selected

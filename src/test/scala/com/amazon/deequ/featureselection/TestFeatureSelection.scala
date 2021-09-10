@@ -29,6 +29,32 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
   "Feature Selection" should {
 
+    "FeatureSelectionHelper on generated data" in
+      withSparkSession { sparkSession =>
+
+        val tc = System.nanoTime
+
+        val nVal = 10
+        val nTargetBins = 100
+        var df = sparkSession.read.format("parquet").load(
+          f"test-data/features_int_10k_$nVal.parquet")
+        df = df.withColumn("target",
+          functions.round(functions.rand(10) * lit(nTargetBins)).cast(IntegerType))
+
+        df.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        df.count()
+
+        val durationc = (System.nanoTime - tc) / 1e9d
+        println(f"read data x $durationc")
+
+
+        val fs = new FeatureSelectionHelper(df.schema,
+          config=FeatureSelectionConfig(nSelectFeatures = 10,
+            numPartitions = df.rdd.getNumPartitions,
+            verbose = true))
+        fs.runFeatureSelection(df)
+      }
+
     "FeatureSelectionHelper on titanic" in
       withSparkSession { sparkSession =>
 
@@ -51,8 +77,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
                                               target = "Survived",
                                               numPartitions = df.rdd.getNumPartitions,
                                               verbose = true))
-        val selectedFeatures = fs.runFeatureSelection(df)
-        selectedFeatures.foreach(kv => println(f"${kv._1}: ${kv._2}"))
+        fs.runFeatureSelection(df)
       }
 
     "FeatureSelectionHelper on different data types should not crash" in
@@ -104,7 +129,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             java.sql.Date.valueOf("2020-06-29"),
             "str",
             serialise("strBinary"),
-            Array(1, 2, 3),
+            Array(17, 2, 3),
             Map("aguila" -> "Colombia", "modelo" -> "Mexico"),
             Row("blue", 45)),
           Row(
@@ -120,7 +145,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             java.sql.Date.valueOf("2020-06-30"),
             "str2",
             serialise("strBinary2"),
-            Array(1, 2, 3, 4),
+            Array(17, 2, 3),
             Map("aguila" -> "Colombia2", "modelo" -> "Mexico2"),
             Row("brown", 46)),
           Row(
@@ -129,14 +154,14 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             15.toShort,
             3743,
             327828732L,
-            15F,
+            5F,
             123.5,
             Decimal("1208484888.8474763788847476378884747637"),
             java.sql.Timestamp.valueOf("2020-06-29 22:41:30"),
             java.sql.Date.valueOf("2020-06-29"),
             "str",
             serialise("strBinary"),
-            Array(1, 2, 3),
+            Array(1, 2, 7),
             Map("aguila" -> "Colombia", "modelo" -> "Mexico"),
             Row("blue", 45)),
           Row(
@@ -152,7 +177,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             java.sql.Date.valueOf("2020-06-30"),
             "str2",
             serialise("strBinary2"),
-            Array(1, 2, 3, 4),
+            Array(1, 2, 7),
             Map("aguila" -> "Colombia2", "modelo" -> "Mexico2"),
             Row("brown", 46)),
           Row(
@@ -184,7 +209,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             java.sql.Date.valueOf("2020-07-30"),
             "str3",
             serialise("strBinary3"),
-            Array(1, 2, 3, 4, 5),
+            Array(1, 2),
             Map("aguila" -> "Colombia2", "modelo" -> "Mexico3"),
             Row("brown", 47)),
           Row(
@@ -200,7 +225,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
             java.sql.Date.valueOf("2020-07-30"),
             "str3",
             serialise("strBinary3"),
-            Array(1, 2, 3, 4, 5),
+            Array(1, 2),
             Map("aguila" -> "Colombia2", "modelo" -> "Mexico3"),
             Row("brown", 47))
         )
@@ -209,15 +234,23 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           sparkSession.sparkContext.parallelize(dataList),
           schema
         )
-        df = df.withColumn("target",
-          functions.round(functions.rand(10) * lit(1)))
+
+        val indexToType = df.schema.zipWithIndex.map(kv => kv._2 -> kv._1.dataType).toMap
+
+        val statsrow = ExtendedStatsHelper.computeColumnSummaryStatistics(df.rdd,
+          df.schema.length,
+          indexToType,
+          ExtendedStatsConfig(frequentItems = false))
+
+        println(statsrow.min.mkString(" "))
+        println(statsrow.max.mkString(" "))
 
         val fs = new FeatureSelectionHelper(df.schema,
-          config=FeatureSelectionConfig(nSelectFeatures = 1,
-            target = "target",
-            rowLimit = 10000000,
+          config=FeatureSelectionConfig(nSelectFeatures = -1,
             numPartitions = df.rdd.getNumPartitions,
-            verbose = true))
+            target = "bool",
+            verbose = true,
+            nBuckets = 200))
         fs.runFeatureSelection(df)
       }
 
@@ -266,7 +299,8 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         val generalCount = Seq(count(lit(1)).alias("_count"))
 
         val stats = df.select(numStatsAggs ++ otherStatsAggs ++
-          generalCount: _*).first()
+          generalCount: _*)
+        stats.show()
 
         val indexToType = df.schema.zipWithIndex.map(kv => kv._2 -> kv._1.dataType).toMap
 

@@ -118,7 +118,7 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
     // select features...
     val tSelect = System.nanoTime
 
-    val indexToFeatures = selectedColumns.zipWithIndex.map(kv => kv._2 -> kv._1).toMap
+    val indexToFeatures = ListMap(selectedColumns.zipWithIndex.map(kv => kv._2 -> kv._1): _*)
     val selectedFeatures = MrmrSelector.selectFeatures(transformedColumns,
                                config.nSelectFeatures,
                                selectedColumns.length,
@@ -212,7 +212,7 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
             stats.approxDistinct.get(statsIndex) > config.discretizationTreshold )) {
             val mn = stats.min(statsIndex)
             val range = stats.max(statsIndex) - stats.min(statsIndex)
-            val scaled = ((value - mn) / range) * (config.nBuckets - 1) + 1
+            val scaled = ((value - mn) / range) * (config.nBuckets - 2) + 1
             byte = scaled.toByte
           } else {
             val lookup = stats.freqItems.get(statsIndex)
