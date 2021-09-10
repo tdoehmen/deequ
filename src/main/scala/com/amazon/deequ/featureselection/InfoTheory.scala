@@ -1,21 +1,21 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+/**
+ * Copyright 2021 Logical Clocks AB. All Rights Reserved.
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License"). You may not
+ * use this file except in compliance with the License. A copy of the License
+ * is located at
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *     http://aws.amazon.com/apache2.0/
+ *
+ * or in the "license" file accompanying this file. This file is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing
+ * permissions and limitations under the License.
+ *
+ * based on fast-mRMR (https://github.com/sramirez/fast-mRMR)
  */
 
-package org.apache.spark.mllib.feature
+package com.amazon.deequ.featureselection
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, _}
 import org.apache.spark.rdd.RDD
@@ -36,7 +36,7 @@ object InfoTheory {
    * @param n Number of elements
    *
    */
-  private[feature] def entropy(freqs: Seq[Long], n: Long) = {
+  private def entropy(freqs: Seq[Long], n: Long) = {
     freqs.aggregate(0.0)({ case (h, q) =>
       h + (if (q == 0) 0  else (q.toDouble / n) * (math.log(q.toDouble / n) / math.log(2)))
     }, { case (h1, h2) => h1 + h2 }) * -1
@@ -47,7 +47,7 @@ object InfoTheory {
    *
    * @param freqs Frequencies of each different class
    */
-  private[feature] def entropy(freqs: Seq[Long]): Double = {
+  private def entropy(freqs: Seq[Long]): Double = {
     entropy(freqs, freqs.reduce(_ + _))
   }
 

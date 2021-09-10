@@ -1,35 +1,57 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+/**
+ * Copyright 2021 Logical Clocks AB. All Rights Reserved.
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License"). You may not
+ * use this file except in compliance with the License. A copy of the License
+ * is located at
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *     http://aws.amazon.com/apache2.0/
+ *
+ * or in the "license" file accompanying this file. This file is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing
+ * permissions and limitations under the License.
+ *
+ * based on fast-mRMR (https://github.com/sramirez/fast-mRMR)
  */
 
-package org.apache.spark.mllib.feature
+package com.amazon.deequ.featureselection
 
-import org.apache.spark.SparkException
-import org.apache.spark.mllib.feature.{InfoTheory => IT}
-import org.apache.spark.mllib.linalg.{DenseVector, SparseVector, Vector}
-import org.apache.spark.mllib.regression.LabeledPoint
+import com.amazon.deequ.featureselection.{InfoTheory => IT}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 
 import scala.collection.immutable.ListMap
 
 /**
+ * Minimum-Redundancy Maximum-Relevance criterion (mRMR)
+ */
+class MrmrCriterion(var relevance: Double) extends Serializable {
+
+  var redundance: Double = 0.0
+  var selectedSize: Int = 0
+
+  def score = {
+    if (selectedSize != 0) {
+      relevance - redundance / selectedSize
+    } else {
+      relevance
+    }
+  }
+
+  def update(mi: Double): MrmrCriterion = {
+    redundance += mi
+    selectedSize += 1
+    this
+  }
+
+  override def toString: String = "MRMR"
+}
+
+/**
  * Train a info-theory feature selection model according to a criterion.
  */
-class MrmrSelector protected[feature] extends Serializable {
+class MrmrSelector protected extends Serializable {
 
   // Pool of criterions
   private type Pool = RDD[(Int, MrmrCriterion)]
@@ -45,7 +67,7 @@ class MrmrSelector protected[feature] extends Serializable {
    * @return A list with the most relevant features and its scores.
    *
    */
-  private[feature] def selectFeatures(
+  private def selectFeatures(
                                        data: RDD[(Long, Byte)],
                                        nToSelect: Int,
                                        nFeatures: Int,
@@ -53,9 +75,14 @@ class MrmrSelector protected[feature] extends Serializable {
 
     val label = nFeatures - 1
     val nInstances = data.count() / nFeatures
-    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> (if (v >= 0) v else
-      (v+256))})
-      .distinct().groupByKey().mapValues(_.max + 1).collectAsMap().toMap
+    // extract max values from bytes, while accounting for scala's singed byte type.
+    // if v < 0, add 256, otherwise return v
+    // example A: input: 255.toByte = (byte) -1   output: -1 + 256   => (int) 255
+    // example B: input: 128.toByte = (byte) -128 output: -128 + 256 => (int) 128
+    // example C: input: 175.toByte = (byte) -81  output: -81 + 256  => (int) 175
+    // example D: input: 12.toByte  = (byte) 12   output:    12      => (int) 12
+    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> (if (v < 0) (v+256)
+      else v)}).distinct().groupByKey().mapValues(_.max + 1).collectAsMap().toMap
 
     // calculate relevance
     val MiAndCmi = IT.computeMI(
@@ -98,54 +125,7 @@ class MrmrSelector protected[feature] extends Serializable {
     selected.reverse
   }
 
-  private[feature] def run(
-                            data: RDD[LabeledPoint],
-                            nToSelect: Int,
-                            numPartitions: Int) = {
-
-    val nPart = if(numPartitions == 0) data.context.getConf.getInt(
-      "spark.default.parallelism", 500) else numPartitions
-
-    val requireByteValues = (l: Double, v: Vector) => {
-      val values = v match {
-        case SparseVector(size, indices, values) =>
-          values
-        case DenseVector(values) =>
-          values
-      }
-      val condition = (value: Double) => value <= Byte.MaxValue &&
-        value >= Byte.MinValue && value % 1 == 0.0
-      if (!values.forall(condition(_)) || !condition(l)) {
-        throw new SparkException(s"Info-Theoretic Framework requires " +
-          s"positive values in range [0, 255]")
-      }
-    }
-
-    val nAllFeatures = data.first.features.size + 1
-    val columnarData: RDD[(Long, Byte)] = data.zipWithIndex().flatMap ({
-      case (LabeledPoint(label, values: SparseVector), r) =>
-        requireByteValues(label, values)
-        // Not implemented yet!
-        throw new NotImplementedError()
-      case (LabeledPoint(label, values: DenseVector), r) =>
-        requireByteValues(label, values)
-        val rindex = r * nAllFeatures
-        val inputs = for(i <- 0 until values.size) yield (rindex + i, values(i).toByte)
-        val output = Array((rindex + values.size, label.toByte))
-        inputs ++ output
-    }).sortByKey(numPartitions = nPart) // put numPartitions parameter
-    columnarData.persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-    val selected = runColumnar(columnarData, nToSelect, nAllFeatures)
-
-    // Print best features according to the mRMR measure
-    val out = selected.map{case (feat, rel) => (feat + 1) + "\t" + "%.4f".format(rel)}
-      .mkString("\n")
-    println("\n*** mRMR features ***\nFeature\tScore\n" + out)
-    // Features must be sorted
-  }
-
-  private[feature] def runColumnar(
+  private def runColumnar(
                             columnarData: RDD[(Long, Byte)],
                             nToSelect: Int,
                             nAllFeatures: Int,
@@ -169,7 +149,9 @@ object MrmrSelector {
    *
    * @param   data RDD of LabeledPoint (discrete data as integers in range [0, 255]).
    * @param   nToSelect maximum number of features to select
-   * @param   numPartitions number of partitions to structure the data.
+   * @param   nAllFeatures number of features to select.
+   * @param   indexToFeatures map of df-indexes and corresponding column names.
+   * @param   verbose whether messages should be printed or not.
    * @return  A mRMR selector that selects a subset of features from the original dataset.
    *
    * Note: LabeledPoint data must be integer values in double representation 
@@ -177,13 +159,6 @@ object MrmrSelector {
    * to byte class directly, making the selection process much more efficient. 
    *
    */
-  def train(
-             data: RDD[LabeledPoint],
-             nToSelect: Int = 25,
-             numPartitions: Int = 0) = {
-    new MrmrSelector().run(data, nToSelect, numPartitions)
-  }
-
   def selectFeatures(
              data: RDD[(Long, Byte)],
              nToSelect: Int = -1,

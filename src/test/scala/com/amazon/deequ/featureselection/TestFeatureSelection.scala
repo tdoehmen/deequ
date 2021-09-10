@@ -17,14 +17,7 @@
 package com.amazon.deequ.featureselection
 
 import com.amazon.deequ.SparkContextSpec
-import com.amazon.deequ.analyzers.feature_selection.{FeatureSelectionConfig, FeatureSelectionHelper}
 import com.amazon.deequ.utils.FixtureSupport
-import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.linalg.DenseVector
-import org.apache.spark.mllib.feature.MrmrSelector
-import org.apache.spark.mllib.linalg.{DenseVector => DenseVectorMLLib}
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.stat.{ExtendedStatsConfig, ExtendedStatsHelper}
 import org.apache.spark.sql.functions.{count, mean, min, _}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, functions}
@@ -54,9 +47,8 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
 
         val fs = new FeatureSelectionHelper(df.schema,
-                                            config=FeatureSelectionConfig(nSelectFeatures = 1,
+                                            config=FeatureSelectionConfig(nSelectFeatures = -1,
                                               target = "Survived",
-                                              rowLimit = 10000000,
                                               numPartitions = df.rdd.getNumPartitions,
                                               verbose = true))
         val selectedFeatures = fs.runFeatureSelection(df)
@@ -222,7 +214,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val fs = new FeatureSelectionHelper(df.schema,
           config=FeatureSelectionConfig(nSelectFeatures = 1,
-            target = "Survived",
+            target = "target",
             rowLimit = 10000000,
             numPartitions = df.rdd.getNumPartitions,
             verbose = true))
@@ -283,43 +275,9 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
           indexToType,
           ExtendedStatsConfig(frequentItems = false))
 
-        println(statsrow.min.toArray.mkString(" "))
-        println(statsrow.max.toArray.mkString(" "))
-        println(statsrow.freqItems.get.map(seq => seq.mkString(", ")).mkString("\n"))
+        println(statsrow.min.mkString(" "))
+        println(statsrow.max.mkString(" "))
+        println(statsrow.approxDistinct.get.mkString(" "))
       }
-
-    "vanilla fast-MRMR results equal FeatureSelectionHelper" in
-      withSparkSession { sparkSession =>
-        // create test dataset
-        val nVal = 10
-        val nTargetBins = 100
-
-        var df = sparkSession.read.format("parquet")
-          .load(f"test-data/features_int_10k_$nVal.parquet")
-        df = df.withColumn("target",
-          functions.round(functions.rand(10) * lit(nTargetBins)))
-
-        val assembler = new VectorAssembler()
-          .setInputCols((1 to nVal).map(i => f"att$i").toArray)
-          .setOutputCol("features")
-
-        val output = assembler.transform(df)
-
-        val data = output.select(col("target").alias("label"), col("features"))
-          .rdd
-          .map(row => LabeledPoint(row.getAs[Double]("label"), DenseVectorMLLib.fromML(row
-            .getAs[DenseVector]("features"))))
-
-
-        MrmrSelector.train(data, 5, 1)
-
-        val fs = new FeatureSelectionHelper(df.schema,
-          config=FeatureSelectionConfig(nSelectFeatures = 5,
-            target = "Survived",
-            rowLimit = 10000000,
-            numPartitions = df.rdd.getNumPartitions,
-            verbose = true))
-      }
-
   }
 }

@@ -14,11 +14,8 @@
  *
  */
 
-package com.amazon.deequ.analyzers.feature_selection
+package com.amazon.deequ.featureselection
 
-import org.apache.spark.mllib.feature.MrmrSelector
-import org.apache.spark.mllib.stat.{ExtendedMultivariateStatistics, ExtendedStatsConfig,
-  ExtendedStatsHelper, NumerizationHelper}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types._

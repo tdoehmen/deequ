@@ -1,36 +1,35 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
+/**
+ * Copyright 2021 Logical Clocks AB. All Rights Reserved.
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ * Licensed under the Apache License, Version 2.0 (the "License"). You may not
+ * use this file except in compliance with the License. A copy of the License
+ * is located at
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *     http://aws.amazon.com/apache2.0/
+ *
+ * or in the "license" file accompanying this file. This file is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+ * express or implied. See the License for the specific language governing
+ * permissions and limitations under the License.
+ *
+ * based on org.apache.spark.mllib.stat.MultivariateOnlineSummarizer
  */
 
-package org.apache.spark.mllib.stat
+package com.amazon.deequ.featureselection
 
 import org.apache.datasketches.frequencies.{ErrorType, LongsSketch}
 import org.apache.datasketches.hll.{HllSketch => jHllSketch, Union => HllUnion}
 import org.apache.datasketches.memory.Memory
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types._
 
 /**
- * MultivariateOnlineSummarizer implements [[MultivariateStatisticalSummary]] to compute the mean,
- * variance, minimum, maximum, counts, and nonzero counts for instances in sparse or dense vector
- * format in an online fashion.
+ * ExtendedMultivariateOnlineSummarizer implements [[ExtendedMultivariateOnlineSummarizer]] to
+ * compute the mean, variance, minimum, maximum, counts, approx distinctness, frequent items,
+ * and nonzero counts for instances in RDD[Row] format in an online fashion.
  *
- * Two MultivariateOnlineSummarizer can be merged together to have a statistical summary of
+ * Two ExtendedMultivariateOnlineSummarizer can be merged together to have a statistical summary of
  * the corresponding joint dataset.
  *
  * A numerically stable algorithm is implemented to compute the mean and variance of instances:
@@ -89,7 +88,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    */
   def add(sample: Row): this.type = add(sample, 1.0)
 
-  private[spark] def add(instance: Row, weight: Double): this.type = {
+  private def add(instance: Row, weight: Double): this.type = {
     require(weight >= 0.0, s"sample weight, ${weight} has to be >= 0.0")
     if (weight == 0.0) return this
 
@@ -229,7 +228,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * Sample mean of each dimension.
    *
    */
-  def mean: Vector = {
+  def mean: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
     val realMean = Array.ofDim[Double](n)
@@ -238,14 +237,14 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       realMean(i) = currMean(i) * (currWeightSum(i) / totalWeightSum)
       i += 1
     }
-    Vectors.dense(realMean)
+    realMean
   }
 
   /**
    * Unbiased estimate of sample variance of each dimension.
    *
    */
-  def variance: Vector = {
+  def variance: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
     val realVariance = Array.ofDim[Double](n)
@@ -264,7 +263,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
         i += 1
       }
     }
-    Vectors.dense(realVariance)
+    realVariance
   }
 
   /**
@@ -282,17 +281,17 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
    * Number of nonzero elements in each dimension.
    *
    */
-  def numNonzeros: Vector = {
+  def numNonzeros: Array[Double] = {
     require(totalCnt > 0, s"Nothing has been added to this summarizer.")
 
-    Vectors.dense(nnz.map(_.toDouble))
+    nnz.map(_.toDouble)
   }
 
   /**
    * Maximum value of each dimension.
    *
    */
-  def max: Vector = {
+  def max: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
     /*
@@ -303,14 +302,14 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       i += 1
     }
     */
-    Vectors.dense(currMax)
+    currMax
   }
 
   /**
    * Minimum value of each dimension.
    *
    */
-  def min: Vector = {
+  def min: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
     /*
@@ -321,14 +320,14 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       i += 1
     }
     */
-    Vectors.dense(currMin)
+    currMin
   }
 
   /**
    * L2 (Euclidean) norm of each dimension.
    *
    */
-  def normL2: Vector = {
+  def normL2: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
     val realMagnitude = Array.ofDim[Double](n)
@@ -339,17 +338,17 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       realMagnitude(i) = math.sqrt(currM2(i))
       i += 1
     }
-    Vectors.dense(realMagnitude)
+    realMagnitude
   }
 
   /**
    * L1 norm of each dimension.
    *
    */
-  def normL1: Vector = {
+  def normL1: Array[Double] = {
     require(totalWeightSum > 0, s"Nothing has been added to this summarizer.")
 
-    Vectors.dense(currL1)
+    currL1
   }
 
   def fromSerialized(): this.type = {
@@ -383,7 +382,7 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       case false => None
     }
     val distinctCounts = configuration.approxDistinctness match {
-      case true => Some(Vectors.dense(hllSketches.map( sketch => sketch.getEstimate ).toArray))
+      case true => Some(hllSketches.map( sketch => sketch.getEstimate ).toArray)
       case false => None
     }
 
@@ -402,16 +401,16 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
 
 }
 
-case class ExtendedMultivariateStatistics(mean: Vector,
-                                          variance: Vector,
+case class ExtendedMultivariateStatistics(mean: Array[Double],
+                                          variance: Array[Double],
                                           count: Long,
                                           weightSum: Double,
-                                          numNonzeros: Vector,
-                                          max: Vector,
-                                          min: Vector,
-                                          normL2: Vector,
-                                          normL1: Vector,
-                                          approxDistinct: Option[Vector],
+                                          numNonzeros: Array[Double],
+                                          max: Array[Double],
+                                          min: Array[Double],
+                                          normL2: Array[Double],
+                                          normL1: Array[Double],
+                                          approxDistinct: Option[Array[Double]],
                                           freqItems: Option[IndexedSeq[Map[Long, Int]]]) extends
   Serializable
 
