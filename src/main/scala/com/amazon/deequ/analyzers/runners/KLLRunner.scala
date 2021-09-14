@@ -18,7 +18,7 @@ package com.amazon.deequ.analyzers.runners
 
 import com.amazon.deequ.analyzers.{Analyzer, KLLParameters, KLLSketch, KLLState, QuantileNonSample, State, StateLoader, StatePersister}
 import com.amazon.deequ.metrics.Metric
-import org.apache.spark.sql.types.{ByteType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructType}
+import org.apache.spark.sql.types.{ByteType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StructType}
 import org.apache.spark.sql.{DataFrame, Row}
 
 @SerialVersionUID(1L)
@@ -84,6 +84,13 @@ class FloatQuantileNonSample(sketchSize: Int, shrinkingFactor: Double)
   override def itemAsDouble(item: Any): Double = item.asInstanceOf[Float].toDouble
 }
 
+@SerialVersionUID(1L)
+class DecimalQuantileNonSample(sketchSize: Int, shrinkingFactor: Double)
+  extends UntypedQuantileNonSample(sketchSize, shrinkingFactor) with Serializable {
+  override def itemAsDouble(item: Any): Double = item.asInstanceOf[java.math.BigDecimal]
+    .doubleValue()
+}
+
 object KLLRunner {
 
   def computeKLLSketchesInExtraPass(
@@ -139,6 +146,7 @@ object KLLRunner {
         case ShortType => new ShortQuantileNonSample(sketchSize, shrinkingFactor)
         case IntegerType => new IntQuantileNonSample(sketchSize, shrinkingFactor)
         case LongType => new LongQuantileNonSample(sketchSize, shrinkingFactor)
+        case DecimalType() => new DecimalQuantileNonSample(sketchSize, shrinkingFactor)
         // TODO at the moment, we will throw exceptions for Decimals
         case _ => throw new IllegalArgumentException(s"Cannot handle ${schema(column).dataType}")
       }
