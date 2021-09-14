@@ -34,7 +34,7 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
 
         val tc = System.nanoTime
 
-        val nVal = 10
+        val nVal = 1000
         val nTargetBins = 100
         var df = sparkSession.read.format("parquet").load(
           f"test-data/features_int_10k_$nVal.parquet")

@@ -19,6 +19,7 @@ package com.amazon.deequ.featureselection
 
 import org.apache.datasketches.frequencies.{ErrorType, LongsSketch}
 import org.apache.datasketches.hll.{HllSketch => jHllSketch, Union => HllUnion}
+import org.apache.datasketches.kll.{KllFloatsSketch => jKllFloatsSketch}
 import org.apache.datasketches.memory.Memory
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
@@ -53,7 +54,10 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
   @transient
   var hllSketches: IndexedSeq[jHllSketch] = _
   var hllSketchesBin: IndexedSeq[Array[Byte]] = _
-  // TODO: add kll sketches aka QuantileNonSample...
+  //var kllSketches: IndexedSeq[QuantileNonSample[Double]] = _
+  @transient
+  var kllSketches: IndexedSeq[jKllFloatsSketch] = _
+  var kllSketchesBin: IndexedSeq[Array[Byte]] = _
   var n = 0
   var currMean: Array[Double] = _
   var currM2n: Array[Double] = _
@@ -77,6 +81,11 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
     }
     if (configuration.approxDistinctness) {
       hllSketches = (0 to vectorSize).map( i => new jHllSketch() )
+    }
+    if (configuration.approxQuantiles) {
+      //kllSketches = (0 to vectorSize).map( i => new QuantileNonSample[Double](statsConfig
+      //  .kllSketchSize, statsConfig.kllSketchShrinkingFactor))
+      kllSketches = (0 to vectorSize).map( i => new jKllFloatsSketch(statsConfig.kllSketchSize))
     }
   }
 
@@ -129,7 +138,10 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
           if (configuration.approxDistinctness) {
             hllSketches(index).update(value)
           }
-
+          if (configuration.approxQuantiles) {
+            //kllSketches(index).update(value)
+            kllSketches(index).update(value.toFloat)
+          }
           if (localCurrMax(index) < value) {
             localCurrMax(index) = value
           }
@@ -220,6 +232,10 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
         union.update(other.hllSketches(kv._2))
         union.getResult
       })
+    }
+    if (configuration.approxQuantiles) {
+      kllSketches.zipWithIndex.foreach( kv =>
+        kv._1.merge(other.kllSketches(kv._2)) )
     }
     this
   }
@@ -358,6 +374,9 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
     if (configuration.approxDistinctness) {
       hllSketches = hllSketchesBin.map( sketch => jHllSketch.heapify(Memory.wrap(sketch)) )
     }
+    if (configuration.approxQuantiles) {
+      kllSketches = kllSketchesBin.map( sketch => jKllFloatsSketch.heapify(Memory.wrap(sketch)) )
+    }
     this
   }
 
@@ -367,6 +386,9 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
     }
     if (configuration.approxDistinctness) {
       hllSketchesBin = hllSketches.map( sketch => sketch.toUpdatableByteArray )
+    }
+    if (configuration.approxQuantiles) {
+      kllSketchesBin = kllSketches.map( sketch => sketch.toByteArray )
     }
     this
   }
@@ -417,7 +439,10 @@ case class ExtendedMultivariateStatistics(mean: Array[Double],
 case class ExtendedStatsConfig(approxDistinctness: Boolean = true,
                                frequentItems: Boolean = true, maxFreqItems: Int = 253,
                                freqItemSketchSize: Int = 1024,
-                               treatInfinityAsNaN: Boolean = true)
+                               treatInfinityAsNaN: Boolean = true,
+                               approxQuantiles: Boolean = false,
+                               kllSketchSize: Int = 2048,
+                               kllSketchShrinkingFactor: Double = 0.64)
 
 object NumerizationHelper {
   def numerize(instance: Row, index: Int, dataType: DataType): Double = {
