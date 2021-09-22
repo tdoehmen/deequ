@@ -33,6 +33,8 @@ abstract class ColumnProfile {
   def typeCounts: Map[String, Long]
   def histogram: Option[Distribution]
   def approximateNumDistinctValuesState: Option[Seq[Long]]
+  def count: Option[Long]
+  def schemaDataType: Option[String]
 }
 
 case class StandardColumnProfile(
@@ -46,7 +48,9 @@ case class StandardColumnProfile(
     isDataTypeInferred: Boolean,
     typeCounts: Map[String, Long],
     histogram: Option[Distribution],
-    approximateNumDistinctValuesState: Option[Seq[Long]] = None)
+    approximateNumDistinctValuesState: Option[Seq[Long]] = None,
+    count: Option[Long] = None,
+    schemaDataType: Option[String] = None)
   extends ColumnProfile
 
 case class NumericColumnProfile(
@@ -68,7 +72,9 @@ case class NumericColumnProfile(
     stdDev: Option[Double],
     approxPercentiles: Option[Seq[Double]],
     correlation: Option[Map[String, Double]],
-    approximateNumDistinctValuesState: Option[Seq[Long]] = None)
+    approximateNumDistinctValuesState: Option[Seq[Long]] = None,
+    count: Option[Long] = None,
+    schemaDataType: Option[String] = None)
   extends ColumnProfile
 
 case class ColumnProfiles(
@@ -90,6 +96,14 @@ object ColumnProfiles {
       columnProfileJson.addProperty("column", profile.column)
       columnProfileJson.addProperty("dataType", profile.dataType.toString)
       columnProfileJson.addProperty("isDataTypeInferred", profile.isDataTypeInferred.toString)
+
+      if (profile.count.isDefined) {
+        columnProfileJson.addProperty("count", profile.count.get)
+      }
+
+      if (profile.schemaDataType.isDefined) {
+        columnProfileJson.addProperty("schemaDataType", profile.schemaDataType.get)
+      }
 
       if (profile.typeCounts.nonEmpty) {
         val typeCountsJson = new JsonObject()

@@ -75,14 +75,9 @@ class MrmrSelector protected extends Serializable {
 
     val label = nFeatures - 1
     val nInstances = data.count() / nFeatures
-    // extract max values from bytes, while accounting for scala's singed byte type.
-    // if v < 0, add 256, otherwise return v
-    // example A: input: 255.toByte = (byte) -1   output: -1 + 256   => (int) 255
-    // example B: input: 128.toByte = (byte) -128 output: -128 + 256 => (int) 128
-    // example C: input: 175.toByte = (byte) -81  output: -81 + 256  => (int) 175
-    // example D: input: 12.toByte  = (byte) 12   output:    12      => (int) 12
-    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> (if (v < 0) (v+256)
-      else v)}).distinct().groupByKey().mapValues(_.max + 1).collectAsMap().toMap
+    val counterByKey = data.map({ case (k, v) => (k % nFeatures).toInt -> (v & 0xff)})
+      .distinct()
+      .groupByKey().mapValues(_.max + 1).collectAsMap().toMap
 
     // calculate relevance
     val MiAndCmi = IT.computeMI(

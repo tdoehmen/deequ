@@ -128,14 +128,9 @@ object InfoTheory {
         val feat = (k % nFeatures).toInt; val inst = (k / nFeatures).toInt
         val xs = bCounter.value.getOrElse(feat, maxSize).toInt
         val m = result.getOrElse(feat, BDM.zeros[Long](xs, ys))
-        val shiftedX = if (x < 0) (x+256) else x
         val y = byCol.value(inst)
-        val shiftedY = if (y < 0) (y+256) else y
-        m(shiftedX, shiftedY) += 1
-        //if (x < 0 || byCol.value(inst) < 0 ){
-        //  println(feat, inst, xs, x, ys, byCol.value(inst), shiftedX, shiftedY)
-        //  println(m(shiftedX, shiftedY))
-        //}
+        // convert singed byte to unsigned byte
+        m((x & 0xff), (y & 0xff)) += 1
         result += feat -> m
       }
       result.toIterator

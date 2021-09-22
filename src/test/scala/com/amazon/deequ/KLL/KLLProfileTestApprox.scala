@@ -220,13 +220,14 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
         val profiles = profile.profiles.map{pro => pro._2}.toSeq
         val json_profile = ColumnProfiles.toJson(profiles)
         val correct_profile = "{\"columns\":[{\"column\":\"att1\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
-          "\"approximateNumDistinctValues\":6,\"approximateNumDistinctValuesStates\":[0,0,0,0,0," +
-          "0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,72057594037927936,0,0,0,0,0,0,0,0,0,0,0,0,0,0," +
-          "4398046511104,0,0,13194139533312,0,0,64,0,0,0,0,0,1]," +
-          "\"histogram\":[{\"value\":\"6.0\",\"count\":1,\"ratio\":0.16666666666666666}," +
-          "{\"value\":\"3.0\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"2.0\"," +
-          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"4.0\",\"count\":1," +
+          "\"isDataTypeInferred\":\"false\",\"count\":6,\"schemaDataType\":\"double\"," +
+          "\"completeness\":1.0,\"approximateNumDistinctValues\":6," +
+          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0," +
+          "0,72057594037927936,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4398046511104,0,0,13194139533312,0,0," +
+          "64,0,0,0,0,0,1],\"histogram\":[{\"value\":\"6.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"3.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"2.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"4.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666},{\"value\":\"1.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666}],\"mean\":3.5,\"maximum\":6.0,\"minimum\":1.0," +
@@ -257,13 +258,13 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           "4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0," +
           "5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0," +
           "6.0,6.0]},{\"column\":\"att2\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
-          "\"approximateNumDistinctValues\":4,\"approximateNumDistinctValuesStates\":[0,0,0,0,0," +
-          "0,3,0,0,0,0,18014398509481984,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0," +
-          "206158430208,0,0,4398046511104,0,0,0,0,0,0,0,0,0,0,0,0]," +
-          "\"histogram\":[{\"value\":\"0.0\",\"count\":3,\"ratio\":0.5},{\"value\":\"6.0\"," +
-          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"7.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
+          "\"isDataTypeInferred\":\"false\",\"count\":6,\"schemaDataType\":\"double\"," +
+          "\"completeness\":1.0,\"approximateNumDistinctValues\":4," +
+          "\"approximateNumDistinctValuesStates\":[0,0,0,0,0,0,3,0,0,0,0,18014398509481984,0,0,0," +
+          "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,206158430208,0,0,4398046511104,0,0,0,0,0,0," +
+          "0,0,0,0,0,0],\"histogram\":[{\"value\":\"0.0\",\"count\":3,\"ratio\":0.5}," +
+          "{\"value\":\"6.0\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"7.0\"," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666}],\"mean\":3.0,\"maximum\":7.0,\"minimum\":0.0," +
           "\"sum\":18.0,\"stdDev\":3.0550504633038935,\"correlations\":[{\"column\":\"att2\"," +
           "\"correlation\":1.0},{\"column\":\"att1\",\"correlation\":0.9263710192499128}]," +

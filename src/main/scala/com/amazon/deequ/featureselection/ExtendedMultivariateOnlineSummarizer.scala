@@ -408,6 +408,11 @@ class ExtendedMultivariateOnlineSummarizer extends Serializable{
       case false => None
     }
 
+    // TODO: compute histograms from KLL and FrequentItem sketches,
+    //  compute Percentiles from KLL sketches,
+    //  export actual data type for each column (not String, Fractional etc.)
+    //  export number of rows for whole data set
+    //  export HLL states.
     ExtendedMultivariateStatistics(mean,
       variance,
       count,

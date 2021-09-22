@@ -22,6 +22,7 @@ import org.apache.spark.sql.types._
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.storage.StorageLevel
 
+import scala.collection.JavaConverters
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
 
@@ -67,6 +68,12 @@ class FeatureSelectionHelper(schema: StructType, config: FeatureSelectionConfig 
         false
     }
   }).map(kv => kv.name).toSet
+
+  def runFeatureSelectionJava(df: DataFrame): java.util.Map[java.lang.String, java.lang.Double] = {
+    val selectedFeatures = runFeatureSelection(df)
+    JavaConverters.mapAsJavaMapConverter(selectedFeatures.map(kv => kv._1 -> double2Double(kv._2)))
+      .asJava
+  }
 
   def runFeatureSelection(df: DataFrame): Map[String, Double] ={
     val dfLimited = df.limit(config.rowLimit)

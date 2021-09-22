@@ -47,9 +47,8 @@ class TestFeatureSelection extends WordSpec with Matchers with SparkContextSpec
         val durationc = (System.nanoTime - tc) / 1e9d
         println(f"read data x $durationc")
 
-
         val fs = new FeatureSelectionHelper(df.schema,
-          config=FeatureSelectionConfig(nSelectFeatures = 10,
+          config=FeatureSelectionConfig(nSelectFeatures = 1,
             numPartitions = df.rdd.getNumPartitions,
             verbose = true))
         fs.runFeatureSelection(df)

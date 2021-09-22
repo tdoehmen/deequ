@@ -20,17 +20,21 @@ import scala.util.Success
 import scala.collection.mutable.ListBuffer
 import com.amazon.deequ.analyzers.DataTypeInstances._
 import com.amazon.deequ.analyzers._
-import com.amazon.deequ.analyzers.runners.{AnalysisRunBuilder, AnalysisRunner, AnalyzerContext, ReusingNotPossibleResultsMissingException}
+import com.amazon.deequ.analyzers.runners.{AnalysisRunBuilder, AnalysisRunner, AnalyzerContext,
+  ReusingNotPossibleResultsMissingException}
 import com.amazon.deequ.metrics._
 import com.amazon.deequ.repository.{MetricsRepository, ResultKey}
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.types.{BinaryType, BooleanType, ByteType, DateType, DecimalType, DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, StructType, TimestampType, DataType => SparkDataType}
+import org.apache.spark.sql.types.{BinaryType, BooleanType, ByteType, DateType, DecimalType,
+  DoubleType, FloatType, IntegerType, LongType, ShortType, StringType, StructType, TimestampType,
+  DataType => SparkDataType}
 
 private[deequ] case class GenericColumnStatistics(
     numRecords: Long,
     inferredTypes: Map[String, DataTypeInstances.Value],
     knownTypes: Map[String, DataTypeInstances.Value],
     typeDetectionHistograms: Map[String, Map[String, Long]],
+    schemaTypes: Map[String, String],
     approximateNumDistincts: Map[String, Long],
     completenesses: Map[String, Double],
     distinctness: Map[String, Double],
@@ -673,8 +677,15 @@ object ColumnProfiler {
       }
       .toMap
 
+    val schemaTypes = schema.fields
+      .filter { column => columns.contains(column.name) }
+      .map { field =>
+        field.name -> field.dataType.typeName
+      }.toMap
+
     GenericColumnStatistics(numRecords, inferredTypes, knownTypes, typeDetectionHistograms,
-      approximateNumDistincts, completenesses, distinctness, entropy, uniqueness, predefinedTypes)
+      schemaTypes, approximateNumDistincts, completenesses, distinctness, entropy, uniqueness,
+      predefinedTypes)
   }
 
 
@@ -975,6 +986,9 @@ object ColumnProfiler {
         val isDataTypeInferred = genericStats.inferredTypes.contains(name)
         val histogram = categoricalStats.histograms.get(name)
 
+        val count = genericStats.numRecords
+        val schemaDataType = genericStats.schemaTypes.get(name)
+
         val typeCounts = genericStats.typeDetectionHistograms.getOrElse(name, Map.empty)
 
         val approxNumDistinctState = metricStates.getOrElse(MetricStates(Map[String, Seq[Long]]()))
@@ -1002,7 +1016,9 @@ object ColumnProfiler {
               numericStats.stdDevs.get(name),
               numericStats.approxPercentiles.get(name),
               numericStats.correlation.get(name),
-              approxNumDistinctState
+              approxNumDistinctState,
+              Some(count),
+              schemaDataType
             )
 
           case _ =>
@@ -1017,7 +1033,9 @@ object ColumnProfiler {
               isDataTypeInferred,
               typeCounts,
               histogram,
-              approxNumDistinctState)
+              approxNumDistinctState,
+              Some(count),
+              schemaDataType)
         }
 
         name -> profile

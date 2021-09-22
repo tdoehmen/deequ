@@ -74,7 +74,10 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
           "Unknown" -> 2,
           "String" -> 4
         ),
-        None)
+        None,
+        None,
+        Some(6L),
+        Some("string"))
 
       assert(actualColumnProfile == expectedColumnProfile)
     }
@@ -98,7 +101,10 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
         DataTypeInstances.String,
         false,
         Map(),
-        None)
+        None,
+        None,
+        Some(6L),
+        Some("string"))
 
       assert(actualColumnProfile == expectedColumnProfile)
     }
@@ -128,7 +134,10 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
           "Unknown" -> 2,
           "String" -> 4
         ),
-        None)
+        None,
+        None,
+        Some(6L),
+        Some("string"))
 
       assert(actualColumnProfile == expectedColumnProfile)
     }
@@ -366,7 +375,10 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
         Some(Distribution(Map(
           "d" -> DistributionValue(1, 0.16666666666666666),
           "f" -> DistributionValue(3, 0.5),
-          NullFieldReplacement -> DistributionValue(2, 0.3333333333333333)), 3)))
+          NullFieldReplacement -> DistributionValue(2, 0.3333333333333333)), 3)),
+        None,
+        Some(6L),
+        Some("string"))
 
       assert(actualColumnProfile == expectedColumnProfile)
     }
@@ -612,22 +624,18 @@ class ColumnProfilerTest extends WordSpec with Matchers with SparkContextSpec
       val profiles = profile.profiles.map{pro => pro._2}.toSeq
       val json_profile = ColumnProfiles.toJson(profiles)
       val correct_profile = "{\"columns\":[{\"column\":\"att1\",\"dataType\":\"Integral\"," +
-        "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"distinctness\":0.01," +
-        "\"entropy\":0.0," +
-        "\"uniqueness\":0.0,\"approximateNumDistinctValues\":1,\"histogram\":[{\"value\":\"0\"," +
-        "\"count\":100," +
-        "\"ratio\":1.0}],\"mean\":0.0,\"maximum\":0.0,\"minimum\":0.0,\"sum\":0.0,\"stdDev\":0.0," +
-        "\"correlations\":[{\"column\":\"att2\",\"correlation\":null},{\"column\":\"att1\"," +
-        "\"correlation\":null}]," +
-        "\"approxPercentiles\":[]},{\"column\":\"att2\",\"dataType\":\"Integral\"," +
-        "\"isDataTypeInferred\":\"false\"," +
+        "\"isDataTypeInferred\":\"false\",\"count\":100,\"schemaDataType\":\"long\"," +
         "\"completeness\":1.0,\"distinctness\":0.01,\"entropy\":0.0,\"uniqueness\":0.0," +
         "\"approximateNumDistinctValues\":1,\"histogram\":[{\"value\":\"0\",\"count\":100," +
-        "\"ratio\":1.0}]," +
-        "\"mean\":0.0,\"maximum\":0.0,\"minimum\":0.0,\"sum\":0.0,\"stdDev\":0.0," +
+        "\"ratio\":1.0}],\"mean\":0.0,\"maximum\":0.0,\"minimum\":0.0,\"sum\":0.0,\"stdDev\":0.0," +
         "\"correlations\":[{\"column\":\"att2\",\"correlation\":null},{\"column\":\"att1\"," +
-        "\"correlation\":null}]," +
-        "\"approxPercentiles\":[]}]}"
+        "\"correlation\":null}],\"approxPercentiles\":[]},{\"column\":\"att2\"," +
+        "\"dataType\":\"Integral\",\"isDataTypeInferred\":\"false\",\"count\":100," +
+        "\"schemaDataType\":\"long\",\"completeness\":1.0,\"distinctness\":0.01,\"entropy\":0.0," +
+        "\"uniqueness\":0.0,\"approximateNumDistinctValues\":1,\"histogram\":[{\"value\":\"0\"," +
+        "\"count\":100,\"ratio\":1.0}],\"mean\":0.0,\"maximum\":0.0,\"minimum\":0.0,\"sum\":0.0," +
+        "\"stdDev\":0.0,\"correlations\":[{\"column\":\"att2\",\"correlation\":null}," +
+        "{\"column\":\"att1\",\"correlation\":null}],\"approxPercentiles\":[]}]}"
         assert(json_profile == correct_profile)
     }
 

@@ -54,7 +54,6 @@ class FeatureSelectionBenchmark extends WordSpec with Matchers with SparkContext
         val durationStatsRdd = (System.nanoTime - tStatsRdd) / 1e9d
         println(f"summary stats rdd x $durationStatsRdd")
 
-
         val tStats = System.nanoTime
 
         val numericColumns = df.schema.filter( kv => {
@@ -81,6 +80,7 @@ class FeatureSelectionBenchmark extends WordSpec with Matchers with SparkContext
             min(withoutNullAndNan).cast(DoubleType).alias(c.name+"_min"),
             max(withoutNullAndNan).cast(DoubleType).alias(c.name+"_max"),
             approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+            countDistinct(col(c.name)).alias(c.name+"_dist_exact"),
             count(when(col(c.name).isNull || col(c.name).isNaN, lit(1)))
               .alias(c.name + "_count_null"),
             stddev(withoutNullAndNan).alias(c.name+"_stddev"),
@@ -89,6 +89,7 @@ class FeatureSelectionBenchmark extends WordSpec with Matchers with SparkContext
         val otherStatsAggs = otherColumns
           .flatMap (c => Seq(
             approx_count_distinct(col(c.name)).alias(c.name+"_dist"),
+            countDistinct(col(c.name)).alias(c.name+"_dist_exact"),
             count(when(col(c.name).isNull, lit(1))).alias(c.name + "_count_null")))
         val generalCount = Seq(count(lit(1)).alias("_count"))
 
