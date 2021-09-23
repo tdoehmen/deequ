@@ -17,8 +17,6 @@
 package org.apache.spark.sql
 
 
-import com.amazon.deequ.analyzers.KLLSketch
-import com.amazon.deequ.analyzers.catalyst.StatefulKLLSketchAggregation
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateFunction, StatefulApproxQuantile, StatefulHyperloglogPlus}
 import org.apache.spark.sql.catalyst.expressions.Literal
 
@@ -88,23 +86,6 @@ object DeequFunctions {
       shrinkingFactor: Double): Column = {
     val statefulKLL = new StatefulKLLSketch(sketchSize, shrinkingFactor)
     statefulKLL(column)
-  }
-
-  def stateful_kll_2(column: Column,
-                     sketchSize: Int = KLLSketch.DEFAULT_SKETCH_SIZE,
-                     shrinkingFactor: Double = KLLSketch.DEFAULT_SHRINKING_FACTOR,
-                     bufferSize: Int = 1000): Column = {
-    val statefulKLL2 = functions.udaf(new StatefulKLLSketch2(sketchSize, shrinkingFactor,
-      bufferSize))
-    statefulKLL2(column)
-  }
-
-  def stateful_kll_agg(column: Column,
-                     sketchSize: Int = KLLSketch.DEFAULT_SKETCH_SIZE,
-                     shrinkingFactor: Double = KLLSketch.DEFAULT_SHRINKING_FACTOR): Column = {
-    val statefulKLLAgg = functions.udaf(new StatefulKLLSketchAggregation(sketchSize,
-      shrinkingFactor))
-    statefulKLLAgg(column)
   }
 
 }

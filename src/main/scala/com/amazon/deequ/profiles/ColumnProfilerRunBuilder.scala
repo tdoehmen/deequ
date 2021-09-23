@@ -131,7 +131,7 @@ class ColumnProfilerRunBuilder(val data: DataFrame) {
    * @param correlation Enable oder disable correlation profiling
    * @param maxCorrelationCols The maximum number of columns to calculate correlations on
    */
-  def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 100): this.type = {
+  def withCorrelation(correlation: Boolean, maxCorrelationCols: Int = 50): this.type = {
     this.correlation = correlation
     this.maxCorrelationCols = Some(maxCorrelationCols)
     this

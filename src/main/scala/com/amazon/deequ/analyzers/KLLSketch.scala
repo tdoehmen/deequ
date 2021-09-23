@@ -18,18 +18,20 @@ package com.amazon.deequ.analyzers
 
 import java.nio.ByteBuffer
 
+import scala.collection.mutable.ListBuffer
+import scala.util.{Try, Failure}
+
+import com.amazon.deequ.analyzers.catalyst.KLLSketchSerializer
+import com.amazon.deequ.analyzers.runners.IllegalAnalyzerParameterException
+import com.amazon.deequ.metrics.{BucketDistribution, BucketValue, KLLMetric}
 import com.amazon.deequ.analyzers.Analyzers._
 import com.amazon.deequ.analyzers.Preconditions.{hasColumn, isNumeric}
-import com.amazon.deequ.analyzers.catalyst.KLLSketchSerializer
-import com.amazon.deequ.analyzers.runners.{IllegalAnalyzerParameterException, MetricCalculationException}
-import com.amazon.deequ.metrics.{BucketDistribution, BucketValue, KLLMetric}
-import org.apache.spark.sql.DeequFunctions.stateful_kll_2
-import org.apache.spark.sql.functions.col
+import com.amazon.deequ.analyzers.runners.MetricCalculationException
+
+import org.apache.spark.sql.DeequFunctions.stateful_kll
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{Column, Row}
-
-import scala.collection.mutable.ListBuffer
-import scala.util.{Failure, Try}
+import org.apache.spark.sql.functions.col
 
 /**
  * State definition for KLL Sketches.
@@ -38,10 +40,9 @@ import scala.util.{Failure, Try}
  * @param globalMin global minimum of the samples represented in KLL Sketch Object
  */
 case class KLLState(
-    var qSketch: QuantileNonSample[Double],
-    var globalMax: Double,
-    var globalMin: Double,
-    var count: Long = 0)
+                     qSketch: QuantileNonSample[Double],
+                     globalMax: Double,
+                     globalMin: Double)
   extends State[KLLState] {
 
   /** Add up states by merging sketches */
@@ -49,8 +50,7 @@ case class KLLState(
     val mergedSketch = qSketch.merge(other.qSketch)
     KLLState(mergedSketch,
       Math.max(globalMax, other.globalMax),
-      Math.min(globalMin, other.globalMin),
-      count + other.count)
+      Math.min(globalMin, other.globalMin))
   }
 }
 
@@ -65,11 +65,10 @@ object KLLState{
     val buffer = ByteBuffer.wrap(bytes)
     val min = buffer.getDouble
     val max = buffer.getDouble
-    val count = buffer.getLong
     val kllBuffer = new Array[Byte](buffer.remaining())
     buffer.get(kllBuffer)
     val kllSketch = KLLSketchSerializer.serializer.deserialize(kllBuffer)
-    KLLState(kllSketch, max, min, count)
+    KLLState(kllSketch, max, min)
   }
 
 }
@@ -89,9 +88,9 @@ case class KLLParameters(sketchSize: Int, shrinkingFactor: Double, numberOfBucke
  * @param kllParameters parameters of KLL Sketch
  */
 case class KLLSketch(
-    column: String,
-//    where: Option[String] = None,
-    kllParameters: Option[KLLParameters] = None)
+                      column: String,
+                      //    where: Option[String] = None,
+                      kllParameters: Option[KLLParameters] = None)
   extends ScanShareableAnalyzer[KLLState, KLLMetric] {
 
   var sketchSize: Int = KLLSketch.DEFAULT_SKETCH_SIZE
@@ -107,19 +106,17 @@ case class KLLSketch(
     if (numberOfBuckets > KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS) {
       throw new IllegalAnalyzerParameterException(
         s"Cannot return KLL Sketch related values for more " +
-        s"than ${KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS} values")
+          s"than ${KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS} values")
     }
   }
 
   override def aggregationFunctions(): Seq[Column] = {
     // stateful_kll(conditionalSelection(column, where), sketchSize, shrinkingFactor) :: Nil
-    stateful_kll_2(col(column), sketchSize, shrinkingFactor) :: Nil
+    stateful_kll(col(column), sketchSize, shrinkingFactor) :: Nil
   }
 
   override def fromAggregationResult(result: Row, offset: Int): Option[KLLState] = {
     ifNoNullsIn(result, offset) { _ =>
-      //val kll: KLL = result.getAs[KLL](offset)
-      //KLLState(KLLSketchSerializer.serializer.deserialize(kll.sketch), kll.min, kll.max)
       KLLState.fromBytes(result.getAs[Array[Byte]](offset))
     }
 
