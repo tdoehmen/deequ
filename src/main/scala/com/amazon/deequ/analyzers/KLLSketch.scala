@@ -40,9 +40,9 @@ import org.apache.spark.sql.functions.col
  * @param globalMin global minimum of the samples represented in KLL Sketch Object
  */
 case class KLLState(
-                     qSketch: QuantileNonSample[Double],
-                     globalMax: Double,
-                     globalMin: Double)
+    qSketch: QuantileNonSample[Double],
+    globalMax: Double,
+    globalMin: Double)
   extends State[KLLState] {
 
   /** Add up states by merging sketches */
@@ -88,9 +88,9 @@ case class KLLParameters(sketchSize: Int, shrinkingFactor: Double, numberOfBucke
  * @param kllParameters parameters of KLL Sketch
  */
 case class KLLSketch(
-                      column: String,
-                      //    where: Option[String] = None,
-                      kllParameters: Option[KLLParameters] = None)
+    column: String,
+//    where: Option[String] = None,
+    kllParameters: Option[KLLParameters] = None)
   extends ScanShareableAnalyzer[KLLState, KLLMetric] {
 
   var sketchSize: Int = KLLSketch.DEFAULT_SKETCH_SIZE
@@ -106,7 +106,7 @@ case class KLLSketch(
     if (numberOfBuckets > KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS) {
       throw new IllegalAnalyzerParameterException(
         s"Cannot return KLL Sketch related values for more " +
-          s"than ${KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS} values")
+        s"than ${KLLSketch.MAXIMUM_ALLOWED_DETAIL_BINS} values")
     }
   }
 

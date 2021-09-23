@@ -17,7 +17,7 @@
 package com.amazon.deequ.analyzers
 
 import scala.collection.immutable.ListMap
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 import scala.util.control.Breaks._
 
@@ -153,29 +153,6 @@ class QuantileNonSample[T](
     }
     ret.toArray
   }
-
-  /**
-   * Get PMF function of sketch items.
-   *
-   * @return PMF function
-   */
-  def getPMF(numberOfBuckets: Integer, start: Double, end: Double, count: Long): Array[Double]
-  = {
-    var bucketsList = new ListBuffer[Double]()
-    for (i <- 0 until numberOfBuckets) {
-      val lowBound = start + (end - start) * i / numberOfBuckets.toDouble
-      val highBound = start + (end - start) * (i + 1) / numberOfBuckets.toDouble
-      if (i == numberOfBuckets - 1) {
-        bucketsList += (getRank(highBound.asInstanceOf[T]) -
-          getRankExclusive(lowBound.asInstanceOf[T])) / count.toDouble
-      } else {
-        bucketsList += (getRankExclusive(highBound.asInstanceOf[T]) -
-          getRankExclusive(lowBound.asInstanceOf[T])) / count.toDouble
-      }
-    }
-    bucketsList.toArray
-  }
-
 
   /**
    * Get the rank of query item (inclusive rank) without RankMap.
