@@ -194,8 +194,9 @@ object ColumnProfiles {
             val store = new JsonObject()
             store.add("parameters", entry)
 
-            val gson = new Gson()
-            val dataJson = gson.toJson(kllSketch.data)
+            val gson = new GsonBuilder().serializeNulls().create();
+            val dataJson = gson.toJson(kllSketch.data.map(
+              subarr => subarr.map(value => normalizeDouble(value))))
 
             store.addProperty("data", dataJson)
 
@@ -206,10 +207,10 @@ object ColumnProfiles {
           val approxPercentilesJson = new JsonArray()
           numericColumnProfile.approxPercentiles.foreach {
             _.foreach { percentile =>
-              approxPercentilesJson.add(new JsonPrimitive(percentile))
+              approxPercentilesJson.add(
+                if (percentile.isNaN) null else new JsonPrimitive(normalizeDouble(percentile)))
             }
           }
-
           columnProfileJson.add("approxPercentiles", approxPercentilesJson)
 
         case _ =>
