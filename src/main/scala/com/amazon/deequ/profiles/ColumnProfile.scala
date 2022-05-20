@@ -20,6 +20,8 @@ import com.amazon.deequ.analyzers.DataTypeInstances
 import com.amazon.deequ.metrics.{BucketDistribution, Distribution}
 import com.google.gson.{Gson, GsonBuilder, JsonArray, JsonObject, JsonPrimitive}
 
+import scala.collection.immutable.ListMap
+
 /* Profiling results for the columns which will be given to the constraint suggestion engine */
 abstract class ColumnProfile {
   def column: String
@@ -28,6 +30,7 @@ abstract class ColumnProfile {
   def entropy: Option[Double]
   def uniqueness: Option[Double]
   def approximateNumDistinctValues: Long
+  def exactNumDistinctValues: Option[Long]
   def dataType: DataTypeInstances.Value
   def isDataTypeInferred: Boolean
   def typeCounts: Map[String, Long]
@@ -41,6 +44,7 @@ case class StandardColumnProfile(
     entropy: Option[Double],
     uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
+    exactNumDistinctValues: Option[Long],
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
     typeCounts: Map[String, Long],
@@ -54,6 +58,7 @@ case class NumericColumnProfile(
     entropy: Option[Double],
     uniqueness: Option[Double],
     approximateNumDistinctValues: Long,
+    exactNumDistinctValues: Option[Long],
     dataType: DataTypeInstances.Value,
     isDataTypeInferred: Boolean,
     typeCounts: Map[String, Long],
@@ -75,7 +80,16 @@ case class ColumnProfiles(
 
 object ColumnProfiles {
 
+  def toJson(columnProfiles: ColumnProfiles): String = {
+    toJson(columnProfiles.profiles.values.toSeq, columnProfiles.numRecords)
+  }
+
   def toJson(columnProfiles: Seq[ColumnProfile]): String = {
+    // for backwards compatability with hsfs API
+    toJson(columnProfiles,  -1)
+  }
+
+  def toJson(columnProfiles: Seq[ColumnProfile], numRecords: Long): String = {
 
     val json = new JsonObject()
 
@@ -96,6 +110,13 @@ object ColumnProfiles {
       }
 
       columnProfileJson.addProperty("completeness", normalizeDouble(profile.completeness))
+
+      if (numRecords >= 0) {
+        columnProfileJson.addProperty("numRecordsNonNull",
+          math.round(normalizeDouble(profile.completeness * numRecords)))
+        columnProfileJson.addProperty("numRecordsNull",
+          numRecords - math.round(normalizeDouble(profile.completeness * numRecords)))
+      }
       if (profile.distinctness.isDefined) {
         columnProfileJson.addProperty("distinctness", normalizeDouble(profile.distinctness.get))
       }
@@ -109,11 +130,19 @@ object ColumnProfiles {
       columnProfileJson.addProperty("approximateNumDistinctValues",
         profile.approximateNumDistinctValues)
 
+      if (profile.exactNumDistinctValues.isDefined) {
+        columnProfileJson.addProperty("exactNumDistinctValues", profile.exactNumDistinctValues.get)
+      }
+
       if (profile.histogram.isDefined) {
         val histogram = profile.histogram.get
         val histogramJson = new JsonArray()
 
-        histogram.values.foreach { case (name, distributionValue) =>
+        // sort histogram by descending quantity, then by key
+        val sorted = ListMap(histogram.values.toSeq.sortBy(kv => (kv._2.absolute, kv._1))
+          (Ordering.Tuple2(Ordering[Long].reverse, Ordering.String)): _*)
+
+        sorted.foreach { case (name, distributionValue) =>
           val histogramEntry = new JsonObject()
           histogramEntry.addProperty("value", name)
           histogramEntry.addProperty("count", distributionValue.absolute)
@@ -174,11 +203,16 @@ object ColumnProfiles {
 
             if (profile.histogram.isEmpty) {
               val histogramJson = new JsonArray()
+
+              // increase precision for small bucket sizes
+              val fp = if (kllSketch.buckets.nonEmpty && scala.math.abs(kllSketch.buckets.head
+                .highValue - kllSketch.buckets.head.lowValue) > 0.05) "%.2f" else "%f"
+
               kllSketch.buckets.foreach{bucket =>
                 val histogramEntry = new JsonObject()
-                histogramEntry.addProperty("value", "%.2f".formatLocal(java.util.Locale.US,
-                  bucket.lowValue) + "-" + "%.2f".formatLocal(java.util.Locale.US, bucket
-                  .highValue))
+                histogramEntry.addProperty("value", fp.formatLocal(java.util.Locale.US,
+                  bucket.lowValue) + " to " + fp.formatLocal(java.util.Locale.US,
+                  bucket.highValue))
                 histogramEntry.addProperty("count", bucket.count)
                 histogramEntry.addProperty("ratio", bucket.count/totalCount)
                 histogramJson.add(histogramEntry)
@@ -239,4 +273,5 @@ object ColumnProfiles {
       numeric
     }
   }
+
 }

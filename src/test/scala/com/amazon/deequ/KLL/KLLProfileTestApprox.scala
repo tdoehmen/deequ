@@ -88,6 +88,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           None,
           None,
           6,
+          None,
           DataTypeInstances.Decimal,
           false,
           Map.empty,
@@ -160,6 +161,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           None,
           None,
           6,
+          None,
           DataTypeInstances.Fractional,
           false,
           Map.empty,
@@ -216,17 +218,17 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
 
         val profile = ColumnProfiler.profileOptimized(data, Option(Seq("att1", "att2")),
           kllParameters = Some(KLLParameters(KLLSketch.DEFAULT_SKETCH_SIZE, KLLSketch
-          .DEFAULT_SHRINKING_FACTOR, 20)), histogram = true)
-        val profiles = profile.profiles.map{pro => pro._2}.toSeq
-        val json_profile = ColumnProfiles.toJson(profiles)
+          .DEFAULT_SHRINKING_FACTOR, 20)), histogram = true, exactUniqueness = true)
+        val json_profile = ColumnProfiles.toJson(profile)
         val correct_profile = "{\"columns\":[{\"column\":\"att1\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
-          "\"approximateNumDistinctValues\":6,\"histogram\":[{\"value\":\"6.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"3.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"2.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"4.0\",\"count\":1," +
-          "\"ratio\":0.16666666666666666},{\"value\":\"1.0\",\"count\":1," +
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"numRecordsNonNull\":6," +
+          "\"numRecordsNull\":0,\"distinctness\":1.0,\"entropy\":1.791759469228055," +
+          "\"uniqueness\":1.0,\"approximateNumDistinctValues\":6,\"exactNumDistinctValues\":6," +
+          "\"histogram\":[{\"value\":\"1.0\",\"count\":1,\"ratio\":0.16666666666666666}," +
+          "{\"value\":\"2.0\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"3.0\"," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"4.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666},{\"value\":\"5.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"6.0\",\"count\":1," +
           "\"ratio\":0.16666666666666666}],\"mean\":3.5,\"maximum\":6.0,\"minimum\":1.0," +
           "\"sum\":21.0,\"stdDev\":1.707825127659933,\"correlations\":[{\"column\":\"att2\"," +
           "\"correlation\":0.9263710192499128},{\"column\":\"att1\",\"correlation\":1.0}]," +
@@ -255,30 +257,32 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           "4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,4.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0,5.0," +
           "5.0,5.0,5.0,5.0,5.0,5.0,5.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0,6.0," +
           "6.0,6.0]},{\"column\":\"att2\",\"dataType\":\"Fractional\"," +
-          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0," +
-          "\"approximateNumDistinctValues\":4,\"histogram\":[{\"value\":\"0.0\",\"count\":3," +
-          "\"ratio\":0.5},{\"value\":\"6.0\",\"count\":1,\"ratio\":0.16666666666666666}," +
-          "{\"value\":\"7.0\",\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"5.0\"," +
-          "\"count\":1,\"ratio\":0.16666666666666666}],\"mean\":3.0,\"maximum\":7.0," +
-          "\"minimum\":0.0,\"sum\":18.0,\"stdDev\":3.0550504633038935," +
-          "\"correlations\":[{\"column\":\"att2\",\"correlation\":1.0},{\"column\":\"att1\"," +
-          "\"correlation\":0.9263710192499128}],\"kll\":{\"buckets\":[{\"low_value\":0.0," +
-          "\"high_value\":0.35,\"count\":3,\"ratio\":0.5},{\"low_value\":0.35,\"high_value\":0.7," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":0.7,\"high_value\":1.05,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":1.05,\"high_value\":1.4,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":1.4,\"high_value\":1.75,\"count\":0,\"ratio\":0.0},{\"low_value\":1.75," +
-          "\"high_value\":2.1,\"count\":0,\"ratio\":0.0},{\"low_value\":2.1,\"high_value\":2.45," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":2.45,\"high_value\":2.8,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":2.8,\"high_value\":3.15,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":3.15,\"high_value\":3.5,\"count\":0,\"ratio\":0.0},{\"low_value\":3.5," +
-          "\"high_value\":3.85,\"count\":0,\"ratio\":0.0},{\"low_value\":3.85,\"high_value\":4.2," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":4.2,\"high_value\":4.55,\"count\":0," +
-          "\"ratio\":0.0},{\"low_value\":4.55,\"high_value\":4.9,\"count\":0,\"ratio\":0.0}," +
-          "{\"low_value\":4.9,\"high_value\":5.25,\"count\":1,\"ratio\":0.16666666666666666}," +
-          "{\"low_value\":5.25,\"high_value\":5.6,\"count\":0,\"ratio\":0.0},{\"low_value\":5.6," +
-          "\"high_value\":5.95,\"count\":0,\"ratio\":0.0},{\"low_value\":5.95,\"high_value\":6.3," +
-          "\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":6.3,\"high_value\":6.65," +
-          "\"count\":0,\"ratio\":0.0},{\"low_value\":6.65,\"high_value\":7.0,\"count\":1," +
+          "\"isDataTypeInferred\":\"false\",\"completeness\":1.0,\"numRecordsNonNull\":6," +
+          "\"numRecordsNull\":0,\"distinctness\":0.6666666666666666,\"entropy\":1.242453324894," +
+          "\"uniqueness\":0.5,\"approximateNumDistinctValues\":4,\"exactNumDistinctValues\":4," +
+          "\"histogram\":[{\"value\":\"0.0\",\"count\":3,\"ratio\":0.5},{\"value\":\"5.0\"," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"value\":\"6.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"value\":\"7.0\",\"count\":1," +
+          "\"ratio\":0.16666666666666666}],\"mean\":3.0,\"maximum\":7.0,\"minimum\":0.0," +
+          "\"sum\":18.0,\"stdDev\":3.0550504633038935,\"correlations\":[{\"column\":\"att2\"," +
+          "\"correlation\":1.0},{\"column\":\"att1\",\"correlation\":0.9263710192499128}]," +
+          "\"kll\":{\"buckets\":[{\"low_value\":0.0,\"high_value\":0.35,\"count\":3," +
+          "\"ratio\":0.5},{\"low_value\":0.35,\"high_value\":0.7,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":0.7,\"high_value\":1.05,\"count\":0,\"ratio\":0.0},{\"low_value\":1.05," +
+          "\"high_value\":1.4,\"count\":0,\"ratio\":0.0},{\"low_value\":1.4,\"high_value\":1.75," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":1.75,\"high_value\":2.1,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":2.1,\"high_value\":2.45,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":2.45,\"high_value\":2.8,\"count\":0,\"ratio\":0.0},{\"low_value\":2.8," +
+          "\"high_value\":3.15,\"count\":0,\"ratio\":0.0},{\"low_value\":3.15,\"high_value\":3.5," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":3.5,\"high_value\":3.85,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":3.85,\"high_value\":4.2,\"count\":0,\"ratio\":0.0}," +
+          "{\"low_value\":4.2,\"high_value\":4.55,\"count\":0,\"ratio\":0.0},{\"low_value\":4.55," +
+          "\"high_value\":4.9,\"count\":0,\"ratio\":0.0},{\"low_value\":4.9,\"high_value\":5.25," +
+          "\"count\":1,\"ratio\":0.16666666666666666},{\"low_value\":5.25,\"high_value\":5.6," +
+          "\"count\":0,\"ratio\":0.0},{\"low_value\":5.6,\"high_value\":5.95,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":5.95,\"high_value\":6.3,\"count\":1," +
+          "\"ratio\":0.16666666666666666},{\"low_value\":6.3,\"high_value\":6.65,\"count\":0," +
+          "\"ratio\":0.0},{\"low_value\":6.65,\"high_value\":7.0,\"count\":1," +
           "\"ratio\":0.16666666666666666}],\"sketch\":{\"parameters\":{\"c\":0.64,\"k\":2048.0}," +
           "\"data\":\"[[0.0,0.0,0.0,5.0,6.0,7.0]]\"}},\"approxPercentiles\":[0.0,0.0,0.0,0.0,0.0," +
           "0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0," +
@@ -306,6 +310,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           Some(1.791759469228055),
           Some(1.0),
           6,
+          Some(6),
           DataTypeInstances.Fractional,
           false,
           Map.empty,
@@ -371,6 +376,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           Some(1.791759469228055),
           Some(1.0),
           6,
+          Some(6),
           DataTypeInstances.String,
           false,
           Map.empty,
@@ -404,6 +410,7 @@ class KLLProfileTestApprox extends WordSpec with Matchers with SparkContextSpec
           Some(3.4011973816621546),
           Some(1.0),
           30,
+          Some(30),
           DataTypeInstances.Fractional,
           false,
           Map.empty,

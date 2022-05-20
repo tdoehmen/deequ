@@ -123,7 +123,7 @@ case class Histogram(
 }
 
 object Histogram {
-  val NullFieldReplacement = "NullValue"
+  val NullFieldReplacement = "-null-"
   val MaximumAllowedDetailBins = 1000
 }
 

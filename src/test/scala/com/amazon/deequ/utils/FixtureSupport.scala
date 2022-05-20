@@ -16,7 +16,7 @@
 
 package com.amazon.deequ.utils
 
-import org.apache.spark.sql.types.{DoubleType, LongType, MapType, StringType, StructType}
+import org.apache.spark.sql.types.{DoubleType, IntegerType, LongType, MapType, StringType, StructField, StructType}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 
 import scala.util.Random
@@ -279,6 +279,39 @@ trait FixtureSupport {
     )
     .toDF("unique", "nonUnique", "nonUniqueWithNulls", "uniqueWithNulls",
       "onlyUniqueWithOtherNonUnique", "halfUniqueCombinedWithNonUnique")
+  }
+
+  def getDfWithNas(sparkSession: SparkSession): DataFrame = {
+    import org.apache.spark.sql.functions._
+
+    val schema = StructType( Array(
+      StructField("nullstr", StringType, true),
+      StructField("nullstrmixed", StringType, true),
+      StructField("nullint", IntegerType, true),
+      StructField("nullintmixed", IntegerType, true),
+      StructField("nulldbl", DoubleType, true),
+      StructField("nulldblna", DoubleType, true),
+      StructField("nulldblnamixed", DoubleType, true),
+      StructField("nullna", DoubleType, true)
+    ))
+
+    val data = Seq(
+      Row(null, "b", null, 2, null, java.lang.Double.NaN, 2.0, java.lang.Double.NaN),
+      Row(null, null, null, null, null, null, null, java.lang.Double.NaN),
+      Row(null, "c", null, 1, null, java.lang.Double.NaN, 1.0, java.lang.Double.NaN),
+      Row(null, null, null, null, null, null, java.lang.Double.NaN, java.lang.Double.NaN),
+      Row(null, "a", null, 0, null, null, 1.0, java.lang.Double.NaN),
+      Row(null, "a", null, 0, null, null, 1.0, java.lang.Double.NaN)
+    )
+
+    val nulldf = sparkSession.createDataFrame(
+      sparkSession.sparkContext.parallelize(data),
+      schema
+    )
+
+    nulldf.withColumn("nullstrmixed2",
+                  when(col("nullstrmixed").equalTo("null"), null)
+                  .otherwise(col("nullstrmixed")))
   }
 
   def getDfWithDistinctValues(sparkSession: SparkSession): DataFrame = {
