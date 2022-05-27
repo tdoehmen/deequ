@@ -20,7 +20,9 @@ import com.amazon.deequ.SparkContextSpec
 import com.amazon.deequ.utils.FixtureSupport
 import org.scalatest.{Matchers, color}
 import org.scalatest.wordspec.AnyWordSpec
-class ColumnProfilerNaNTest extends AnyWordSpec with Matchers with SparkContextSpec with FixtureSupport {
+
+class ColumnProfilerNaNTest extends AnyWordSpec with Matchers with SparkContextSpec with
+  FixtureSupport {
 
   "Column Profiler NaN Test" should {
     "return results for data frame with NaN and null values without failure" in withSparkSession {

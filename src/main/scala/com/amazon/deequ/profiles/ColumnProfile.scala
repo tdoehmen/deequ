@@ -86,7 +86,7 @@ object ColumnProfiles {
 
   def toJson(columnProfiles: Seq[ColumnProfile]): String = {
     // for backwards compatability with hsfs API
-    toJson(columnProfiles,  -1)
+    toJson(columnProfiles, -1)
   }
 
   def toJson(columnProfiles: Seq[ColumnProfile], numRecords: Long): String = {
@@ -206,7 +206,7 @@ object ColumnProfiles {
 
               // increase precision for small bucket sizes
               val fp = if (kllSketch.buckets.nonEmpty && scala.math.abs(kllSketch.buckets.head
-                .highValue - kllSketch.buckets.head.lowValue) > 0.05) "%.2f" else "%f"
+                .highValue - kllSketch.buckets.head.lowValue) > 0.05) { "%.2f" } else { "%f" }
 
               kllSketch.buckets.foreach{bucket =>
                 val histogramEntry = new JsonObject()

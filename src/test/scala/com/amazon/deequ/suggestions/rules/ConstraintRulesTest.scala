@@ -570,7 +570,8 @@ class ConstraintRulesTest extends WordSpec with FixtureSupport with SparkContext
         Some(1.0), 100, Some(100), DataTypeInstances.Integral, false, Map.empty,
         Some(somewhatSkewedIntegralDist))
       val integralWithSkewedDist = StandardColumnProfile("col1", 1.0, Some(1.0), Some(1.0),
-        Some(1.0), 100, Some(100), DataTypeInstances.Integral, false, Map.empty, Some(skewedIntegralDist))
+        Some(1.0), 100, Some(100), DataTypeInstances.Integral, false, Map.empty, Some
+        (skewedIntegralDist))
       val integralNoDist = StandardColumnProfile("col1", 1.0, Some(1.0), Some(1.0), Some(1.0),
         95, Some(95), DataTypeInstances.Integral, false, Map.empty, None)
 
